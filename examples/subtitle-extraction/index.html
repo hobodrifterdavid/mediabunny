@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>MediaBunny - Subtitle Extraction Example</title>
+	<link rel="stylesheet" href="../base.css">
+</head>
+<body>
+	<h1>Subtitle Extraction Example</h1>
+	<p>This example demonstrates how to extract subtitles from video files (MKV, MP4) that contain subtitle tracks.</p>
+	
+	<div class="controls">
+		<label for="fileInput">Select a video file with subtitles:</label>
+		<input type="file" id="fileInput" accept=".mkv,.mp4,.webm,.mov">
+	</div>
+	
+	<div id="output" class="output"></div>
+	
+	<script type="module" src="./subtitle-extraction.ts"></script>
+</body>
+</html> 

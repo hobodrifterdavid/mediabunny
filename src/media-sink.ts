@@ -8,7 +8,7 @@
 
 import { parsePcmCodec, PCM_AUDIO_CODECS, PcmAudioCodec, VideoCodec, AudioCodec } from './codec';
 import { CustomVideoDecoder, customVideoDecoders, CustomAudioDecoder, customAudioDecoders } from './custom-coder';
-import { InputAudioTrack, InputTrack, InputVideoTrack } from './input-track';
+import { InputAudioTrack, InputTrack, InputVideoTrack, InputSubtitleTrack } from './input-track';
 import {
 	AnyIterable,
 	assert,
@@ -28,6 +28,7 @@ import {
 import { EncodedPacket } from './packet';
 import { fromAlaw, fromUlaw } from './pcm';
 import { AudioSample, VideoSample } from './sample';
+import { SubtitleCue } from './subtitles';
 
 /**
  * Additional options for controlling packet retrieval.
@@ -216,7 +217,7 @@ export class EncodedPacketSink {
 	 * method will intelligently preload packets based on the speed of the consumer.
 	 *
 	 * @param startPacket - (optional) The packet from which iteration should begin. This packet will also be yielded.
-	 * @param endTimestamp - (optional) The timestamp at which iteration should end. This packet will _not_ be yielded.
+	 * @param endPacket - (optional) The timestamp at which iteration should end. This packet will _not_ be yielded.
 	 */
 	packets(
 		startPacket?: EncodedPacket,
@@ -1652,5 +1653,102 @@ export class AudioBufferSink {
 			this._audioSampleSink.samplesAtTimestamps(timestamps),
 			data => data && this._audioSampleToWrappedArrayBuffer(data),
 		);
+	}
+}
+
+/**
+ * A sink for extracting subtitle cues from an input subtitle track.
+ * @public
+ */
+export class SubtitlePacketSink {
+	private _track: InputSubtitleTrack;
+
+	constructor(track: InputSubtitleTrack) {
+		if (!track || !track.isSubtitleTrack()) {
+			throw new TypeError('track must be an InputSubtitleTrack.');
+		}
+		this._track = track;
+	}
+
+	/**
+	 * Extracts subtitle cues from the track.
+	 *
+	 * @param startTime - Start time in seconds (inclusive)
+	 * @param endTime - End time in seconds (exclusive)
+	 * @returns An async generator that yields subtitle cues
+	 */
+	async *subtitles(
+		startTime?: number,
+		endTime?: number,
+	): AsyncGenerator<SubtitleCue> {
+		const packetSink = new EncodedPacketSink(this._track);
+
+		// Get the first packet or the packet at startTime
+		let currentPacket: EncodedPacket | null;
+		if (startTime !== undefined) {
+			currentPacket = await packetSink.getPacket(startTime);
+		} else {
+			currentPacket = await packetSink.getFirstPacket();
+		}
+
+		// Iterate through packets
+		while (currentPacket) {
+			// Check if we've passed the end time
+			if (endTime !== undefined && currentPacket.timestamp >= endTime) {
+				break;
+			}
+
+			const cue = await this._parsePacketToCue(currentPacket);
+			if (cue) {
+				yield cue;
+			}
+
+			currentPacket = await packetSink.getNextPacket(currentPacket);
+		}
+	}
+
+	private async _parsePacketToCue(packet: EncodedPacket): Promise<SubtitleCue | null> {
+		const codec = this._track.codec;
+
+		if (!codec || packet.isMetadataOnly) {
+			return null;
+		}
+
+		// Decode the packet data as text
+		const decoder = new TextDecoder();
+		const text = decoder.decode(packet.data);
+
+		// For now, we'll create a basic cue structure
+		// In a real implementation, you'd parse the text based on the codec format
+		const cue: SubtitleCue = {
+			timestamp: packet.timestamp,
+			duration: packet.duration,
+			text: text.trim(),
+		};
+
+		// Handle codec-specific parsing
+		switch (codec) {
+			case 'webvtt':
+				// WebVTT packets might have additional metadata
+				// For now, just return the basic cue
+				break;
+			case 'srt':
+				// SRT is plain text, so the basic parsing is sufficient
+				break;
+			case 'tx3g':
+				// 3GPP Timed Text has a specific binary format
+				// Would need proper parsing here
+				console.warn('3GPP Timed Text parsing not fully implemented');
+				break;
+			case 'ass':
+			case 'ssa':
+				// ASS/SSA have specific formats that would need parsing
+				console.warn('ASS/SSA parsing not fully implemented');
+				break;
+			default:
+				console.warn(`Unsupported subtitle codec for parsing: ${codec}`);
+		}
+
+		return cue;
 	}
 }

@@ -86,11 +86,17 @@ Not all codecs can be used with all containers. The following table specifies th
 | `'pcm-f64be'`  |    ✓     |   ✓   |       |           |       |       |       |
 | `'ulaw'`       |          |   ✓   |       |           |       |       |   ✓   |
 | `'alaw'`       |          |   ✓   |       |           |       |       |   ✓   |
-| `'webvtt'`[^2] |   (✓)    |       |  (✓)  |    (✓)    |       |       |       |
+| `'webvtt'`[^2] |    ✓     |       |   ✓   |     ✓     |       |       |       |
+| `'srt'`[^2]    |          |       |   ✓   |           |       |       |       |
+| `'ass'`[^2]    |          |       |   ✓   |           |       |       |       |
+| `'ssa'`[^2]    |          |       |   ✓   |           |       |       |       |
+| `'tx3g'`[^2]   |    ✓     |   ✓   |       |           |       |       |       |
+| `'vobsub'`[^2] |          |       |   ✓   |           |       |       |       |
+| `'pgs'`[^2]    |          |       |   ✓   |           |       |       |       |
 
 
 [^1]: WebM only supports a small subset of the codecs supported by Matroska. However, this library can technically read all codecs from a WebM that are supported by Matroska.
-[^2]: WebVTT can only be written, not read.
+[^2]: WebVTT and other subtitle codecs can be both read and written, though full parsing support varies by format.
 
 ## Querying codec encodability
 

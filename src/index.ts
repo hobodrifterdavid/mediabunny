@@ -114,7 +114,13 @@ export {
 	OGG,
 } from './input-format';
 export { Input, InputOptions } from './input';
-export { InputTrack, InputVideoTrack, InputAudioTrack, PacketStats } from './input-track';
+export {
+	InputTrack,
+	InputVideoTrack,
+	InputAudioTrack,
+	InputSubtitleTrack,
+	PacketStats,
+} from './input-track';
 export { EncodedPacket, PacketType } from './packet';
 export {
 	VideoSample,
@@ -123,17 +129,15 @@ export {
 	AudioSampleInit,
 	AudioSampleCopyToOptions,
 } from './sample';
+export { SubtitleCue, SubtitleConfig } from './subtitles';
 export {
-	PacketRetrievalOptions,
-	EncodedPacketSink,
-	BaseMediaSampleSink,
 	VideoSampleSink,
-	CanvasSinkOptions,
-	CanvasSink,
-	WrappedCanvas,
 	AudioSampleSink,
 	AudioBufferSink,
 	WrappedAudioBuffer,
+	EncodedPacketSink,
+	SubtitlePacketSink,
+	PacketRetrievalOptions,
 } from './media-sink';
 export { ConversionOptions, Conversion } from './conversion';
 export {

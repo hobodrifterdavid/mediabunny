@@ -83,7 +83,13 @@ export const AUDIO_CODECS = [
  */
 export const SUBTITLE_CODECS = [
 	'webvtt',
-] as const; // TODO add the rest
+	'srt', // SubRip
+	'ass', // Advanced SubStation Alpha
+	'ssa', // SubStation Alpha
+	'tx3g', // 3GPP Timed Text (MP4)
+	'vobsub', // DVD subtitles (image-based)
+	'pgs', // Blu-ray subtitles (image-based)
+] as const;
 
 /**
  * Union type of known video codecs.

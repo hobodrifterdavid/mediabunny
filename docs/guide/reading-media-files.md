@@ -76,9 +76,17 @@ await input.getPrimaryVideoTrack(); // => InputVideoTrack | null
 await input.getPrimaryAudioTrack(); // => InputAudioTrack | null
 ```
 
-::: info
-Subtitle tracks are currently not supported for reading.
-:::
+### Subtitle tracks
+
+You can also retrieve subtitle tracks from the input file:
+
+```ts
+// Get all subtitle tracks:
+await input.getSubtitleTracks(); // => InputSubtitleTrack[]
+
+// Get the primary subtitle track:
+await input.getPrimarySubtitleTrack(); // => InputSubtitleTrack | null
+```
 
 ### Common track metadata
 
@@ -357,6 +365,26 @@ for await (const { buffer, timestamp } of sink.buffers(5, 10)) {
 	node.buffer = buffer;
 	node.connect(audioContext.destination);
 	node.start(timestamp);
+}
+```
+
+We can extract subtitles from a video file:
+```ts
+import { SubtitlePacketSink } from 'mediabunny';
+
+const subtitleTrack = await input.getPrimarySubtitleTrack();
+if (subtitleTrack) {
+	const sink = new SubtitlePacketSink(subtitleTrack);
+	
+	// Extract all subtitle cues
+	for await (const cue of sink.subtitles()) {
+		console.log(`[${cue.timestamp}s - ${cue.timestamp + cue.duration}s] ${cue.text}`);
+	}
+	
+	// Or extract subtitles from a specific time range (10s to 60s)
+	for await (const cue of sink.subtitles(10, 60)) {
+		// Process subtitle cue
+	}
 }
 ```
 

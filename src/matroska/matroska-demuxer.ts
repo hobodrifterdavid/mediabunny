@@ -19,6 +19,7 @@ import {
 	extractVideoCodecString,
 	MediaCodec,
 	VideoCodec,
+	SubtitleCodec,
 } from '../codec';
 import { Demuxer } from '../demuxer';
 import { Input } from '../input';
@@ -29,6 +30,8 @@ import {
 	InputTrackBacking,
 	InputVideoTrack,
 	InputVideoTrackBacking,
+	InputSubtitleTrack,
+	InputSubtitleTrackBacking,
 } from '../input-track';
 import { PacketRetrievalOptions } from '../media-sink';
 import {
@@ -59,6 +62,7 @@ import {
 	MIN_HEADER_SIZE,
 } from './ebml';
 import { buildMatroskaMimeType } from './matroska-misc';
+import { SubtitleConfig } from '../subtitles';
 
 type Segment = {
 	seekHeadSeen: boolean;
@@ -153,10 +157,17 @@ type InternalTrack = {
 			codec: AudioCodec | null;
 			codecDescription: Uint8Array | null;
 			aacCodecInfo: AacCodecInfo | null;
+		}
+		| {
+			type: 'subtitle';
+			codec: SubtitleCodec | null;
+			codecId: string;
+			config: SubtitleConfig | null;
 		};
 };
 type InternalVideoTrack = InternalTrack & { info: { type: 'video' } };
 type InternalAudioTrack = InternalTrack & { info: { type: 'audio' } };
+type InternalSubtitleTrack = InternalTrack & { info: { type: 'subtitle' } };
 
 const METADATA_ELEMENTS = [
 	{ id: EBMLId.SeekHead, flag: 'seekHeadSeen' },
@@ -749,6 +760,33 @@ export class MatroskaDemuxer extends Demuxer {
 						const inputTrack = new InputAudioTrack(new MatroskaAudioTrackBacking(audioTrack));
 						this.currentTrack.inputTrack = inputTrack;
 						this.currentSegment.tracks.push(this.currentTrack);
+					} else if (this.currentTrack.info.type === 'subtitle') {
+						// Map Matroska codec IDs to our subtitle codecs
+						const codecMap: Record<string, SubtitleCodec> = {
+							'S_TEXT/WEBVTT': 'webvtt',
+							'S_TEXT/UTF8': 'srt', // SRT stored as plain text
+							'S_TEXT/SSA': 'ssa',
+							'S_TEXT/ASS': 'ass',
+							'S_VOBSUB': 'vobsub',
+							'S_HDMV/PGS': 'pgs',
+						};
+
+						this.currentTrack.info.codec = codecMap[this.currentTrack.codecId!] || null;
+						this.currentTrack.info.codecId = this.currentTrack.codecId || '';
+
+						// Create config from codec private data if available
+						if (this.currentTrack.codecPrivate) {
+							// Convert codec private data to string for text-based subtitle formats
+							const decoder = new TextDecoder();
+							this.currentTrack.info.config = {
+								description: decoder.decode(this.currentTrack.codecPrivate),
+							};
+						}
+
+						const subtitleTrack = this.currentTrack as InternalSubtitleTrack;
+						const inputTrack = new InputSubtitleTrack(new MatroskaSubtitleTrackBacking(subtitleTrack));
+						this.currentTrack.inputTrack = inputTrack;
+						this.currentSegment.tracks.push(this.currentTrack);
 					}
 				}
 
@@ -784,6 +822,13 @@ export class MatroskaDemuxer extends Demuxer {
 						codec: null,
 						codecDescription: null,
 						aacCodecInfo: null,
+					};
+				} else if (type === 17) {
+					this.currentTrack.info = {
+						type: 'subtitle',
+						codec: null,
+						codecId: '',
+						config: null,
 					};
 				}
 			}; break;
@@ -1658,6 +1703,23 @@ class MatroskaAudioTrackBacking extends MatroskaTrackBacking implements InputAud
 			sampleRate: this.internalTrack.info.sampleRate,
 			description: this.internalTrack.info.codecDescription ?? undefined,
 		};
+	}
+}
+
+class MatroskaSubtitleTrackBacking extends MatroskaTrackBacking implements InputSubtitleTrackBacking {
+	override internalTrack: InternalSubtitleTrack;
+
+	constructor(internalTrack: InternalSubtitleTrack) {
+		super(internalTrack);
+		this.internalTrack = internalTrack;
+	}
+
+	override getCodec(): SubtitleCodec | null {
+		return this.internalTrack.info.codec;
+	}
+
+	async getSubtitleConfig(): Promise<SubtitleConfig | null> {
+		return this.internalTrack.info.config;
 	}
 }
 

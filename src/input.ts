@@ -130,6 +130,18 @@ export class Input<S extends Source = Source> {
 		return tracks.find(x => x.isAudioTrack()) ?? null;
 	}
 
+	/** Returns the list of all subtitle tracks of this input file. */
+	async getSubtitleTracks() {
+		const tracks = await this.getTracks();
+		return tracks.filter(x => x.isSubtitleTrack());
+	}
+
+	/** Returns the primary subtitle track of this input file, or null if there are no subtitle tracks. */
+	async getPrimarySubtitleTrack() {
+		const tracks = await this.getTracks();
+		return tracks.find(x => x.isSubtitleTrack()) ?? null;
+	}
+
 	/** Returns the full MIME type of this input file, including track codecs. */
 	async getMimeType() {
 		const demuxer = await this._getDemuxer();

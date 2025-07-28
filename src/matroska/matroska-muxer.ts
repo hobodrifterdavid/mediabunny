@@ -429,6 +429,12 @@ export class MatroskaMuxer extends Muxer {
 			} else {
 				const map: Record<SubtitleCodec, string> = {
 					webvtt: 'wvtt',
+					srt: 'srt',
+					ass: 'ass',
+					ssa: 'ssa',
+					tx3g: 'tx3g',
+					vobsub: 'vobsub',
+					pgs: 'pgs',
 				};
 				return map[trackData.track.source._codec];
 			}

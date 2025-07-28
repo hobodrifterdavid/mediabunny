@@ -6,25 +6,35 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-export type SubtitleCue = {
+import { SubtitleCodec } from './codec';
+
+/**
+ * Represents a single subtitle cue with timing and text content.
+ * @public
+ */
+export interface SubtitleCue {
 	timestamp: number; // in seconds
 	duration: number; // in seconds
 	text: string;
 	identifier?: string;
 	settings?: string;
 	notes?: string;
-};
+}
 
-export type SubtitleConfig = {
+/**
+ * Configuration for subtitle tracks.
+ * @public
+ */
+export interface SubtitleConfig {
 	description: string;
-};
+}
 
 export type SubtitleMetadata = {
 	config?: SubtitleConfig;
 };
 
 type SubtitleParserOptions = {
-	codec: 'webvtt';
+	codec: SubtitleCodec;
 	output: (cue: SubtitleCue, metadata: SubtitleMetadata) => unknown;
 };
 

@@ -232,6 +232,12 @@ export class IsobmffMuxer extends Muxer {
 			} else {
 				const map: Record<SubtitleCodec, string> = {
 					webvtt: 'wvtt',
+					srt: 'text',
+					ass: 'text',
+					ssa: 'text',
+					tx3g: 'tx3g',
+					vobsub: 'vobsub',
+					pgs: 'pgs',
 				};
 				return map[trackData.track.source._codec];
 			}
