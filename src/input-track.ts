@@ -13,6 +13,8 @@ import { EncodedPacketSink, PacketRetrievalOptions } from './media-sink';
 import { assert, Rotation } from './misc';
 import { TrackType } from './output';
 import { EncodedPacket, PacketType } from './packet';
+import { SubtitleCodec } from './codec';
+import { SubtitleConfig } from './subtitles';
 
 /**
  * Contains aggregate statistics about the encoded packets of a track.
@@ -77,6 +79,11 @@ export abstract class InputTrack {
 	/** Returns true iff this track is an audio track. */
 	isAudioTrack(): this is InputAudioTrack {
 		return this instanceof InputAudioTrack;
+	}
+
+	/** Returns true iff this track is a subtitle track. */
+	isSubtitleTrack(): this is InputSubtitleTrack {
+		return this instanceof InputSubtitleTrack;
 	}
 
 	/** The unique ID of this track in the input file. */
@@ -376,5 +383,56 @@ export class InputAudioTrack extends InputTrack {
 		}
 
 		return 'key'; // No audio codec with delta packets
+	}
+}
+
+export interface InputSubtitleTrackBacking extends InputTrackBacking {
+	getCodec(): SubtitleCodec | null;
+	getSubtitleConfig(): Promise<SubtitleConfig | null>;
+}
+
+/**
+ * Represents a subtitle track in an input file.
+ * @public
+ */
+export class InputSubtitleTrack extends InputTrack {
+	override _backing: InputSubtitleTrackBacking;
+
+	constructor(backing: InputSubtitleTrackBacking) {
+		super(backing);
+		this._backing = backing;
+	}
+
+	get type(): TrackType {
+		return 'subtitle';
+	}
+
+	get codec() {
+		return this._backing.getCodec();
+	}
+
+	/** Returns true iff this track is a subtitle track. */
+	override isSubtitleTrack(): this is InputSubtitleTrack {
+		return true;
+	}
+
+	/** Returns the subtitle configuration for this track. */
+	async getSubtitleConfig() {
+		return this._backing.getSubtitleConfig();
+	}
+
+	async getCodecParameterString() {
+		return this.codec;
+	}
+
+	async canDecode() {
+		return this.codec !== null;
+	}
+
+	async determinePacketType(packet: EncodedPacket): Promise<PacketType | null> {
+		if (!(packet instanceof EncodedPacket)) {
+			throw new TypeError('packet must be an EncodedPacket.');
+		}
+		return 'key'; // All subtitle packets are key frames
 	}
 }
