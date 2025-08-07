@@ -222,6 +222,11 @@ class WaveAudioTrackBacking implements InputAudioTrackBacking {
 		return this.demuxer.getCodec();
 	}
 
+	getCodecId() {
+		// WAV doesn't use string codec IDs
+		return this.getCodec();
+	}
+
 	async getDecoderConfig(): Promise<AudioDecoderConfig | null> {
 		const codec = this.demuxer.getCodec();
 		if (!codec) {
@@ -250,6 +255,11 @@ class WaveAudioTrackBacking implements InputAudioTrackBacking {
 		return this.demuxer.audioInfo.sampleRate;
 	}
 
+	getBitDepth() {
+		assert(this.demuxer.audioInfo);
+		return this.demuxer.audioInfo.sampleSizeInBytes * 8;
+	}
+
 	getTimeResolution() {
 		assert(this.demuxer.audioInfo);
 		return this.demuxer.audioInfo.sampleRate;
@@ -257,6 +267,36 @@ class WaveAudioTrackBacking implements InputAudioTrackBacking {
 
 	getLanguageCode() {
 		return UNDETERMINED_LANGUAGE;
+	}
+
+	getLanguageBCP47() {
+		// WAV files don't have language metadata
+		return null;
+	}
+
+	getName() {
+		// WAV files don't have track names in metadata
+		return null;
+	}
+
+	isDefault() {
+		return true; // Single track is always default
+	}
+
+	isForced() {
+		return false;
+	}
+
+	getDefaultDuration() {
+		return null;
+	}
+
+	getCodecDelay() {
+		return 0;
+	}
+
+	getSeekPreRoll() {
+		return 0;
 	}
 
 	async getFirstTimestamp() {

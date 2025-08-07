@@ -1968,11 +1968,51 @@ abstract class IsobmffTrackBacking implements InputTrackBacking {
 	}
 
 	getCodec(): MediaCodec | null {
-		throw new Error('Not implemented on base class.');
+		return null;
+	}
+
+	getCodecId() {
+		// MP4 doesn't store codec IDs in the same string format as Matroska
+		return null;
 	}
 
 	getLanguageCode() {
 		return this.internalTrack.languageCode;
+	}
+
+	getLanguageBCP47() {
+		// ISOBMFF doesn't store BCP 47 language codes in the track metadata
+		return null;
+	}
+
+	getName() {
+		// MP4/ISOBMFF doesn't store track names in the track metadata
+		return null;
+	}
+
+	isDefault() {
+		// MP4 doesn't have a default flag in the same way as Matroska
+		return false;
+	}
+
+	isForced() {
+		// MP4 doesn't have a forced flag in the same way as Matroska
+		return false;
+	}
+
+	getDefaultDuration() {
+		// Could be calculated from sample tables but not directly stored
+		return null;
+	}
+
+	getCodecDelay() {
+		// MP4 stores this differently, would need to extract from edit lists
+		return 0;
+	}
+
+	getSeekPreRoll() {
+		// MP4 stores this differently
+		return 0;
 	}
 
 	getTimeResolution() {
@@ -2579,6 +2619,11 @@ class IsobmffAudioTrackBacking extends IsobmffTrackBacking implements InputAudio
 
 	getSampleRate() {
 		return this.internalTrack.info.sampleRate;
+	}
+
+	getBitDepth() {
+		// MP4 audio bit depth is stored in the audio sample entry
+		return null; // Not currently parsed from MP4
 	}
 
 	async getDecoderConfig(): Promise<AudioDecoderConfig | null> {

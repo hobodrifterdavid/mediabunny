@@ -44,6 +44,46 @@ async function testSubtitleExtraction(filePath) {
 		console.log(`  Audio tracks: ${audioTracks.length}`);
 		console.log(`  Subtitle tracks: ${subtitleTracks.length}`);
 		
+		// Show video track metadata
+		if (videoTracks.length > 0) {
+			console.log('\n🎥 Video Tracks:');
+			for (const track of videoTracks) {
+				console.log(`\n  Track (ID: ${track.id}):`);
+				console.log(`    Codec: ${track.codec || `unknown (${track.codecId || 'no codec ID'})`}`);
+				console.log(`    Dimensions: ${track.codedWidth}x${track.codedHeight}`);
+				console.log(`    Language (ISO 639-2): ${track.languageCode || 'unknown'}`);
+				console.log(`    Language (BCP 47): ${track.languageBCP47 || 'not specified'}`);
+				console.log(`    Name: ${track.name || 'untitled'}`);
+				console.log(`    Default: ${track.isDefault}`);
+				console.log(`    Forced: ${track.isForced}`);
+				if (track.defaultDuration) {
+					const fps = 1000000000 / track.defaultDuration;
+					console.log(`    Frame rate: ${fps.toFixed(2)} fps (from default duration)`);
+				}
+				console.log(`    Codec delay: ${track.codecDelay / 1000000}ms`);
+				console.log(`    Seek pre-roll: ${track.seekPreRoll / 1000000}ms`);
+			}
+		}
+		
+		// Show audio track metadata
+		if (audioTracks.length > 0) {
+			console.log('\n🔊 Audio Tracks:');
+			for (const track of audioTracks) {
+				console.log(`\n  Track (ID: ${track.id}):`);
+				console.log(`    Codec: ${track.codec || `unknown (${track.codecId || 'no codec ID'})`}`);
+				console.log(`    Channels: ${track.numberOfChannels}`);
+				console.log(`    Sample rate: ${track.sampleRate} Hz`);
+				console.log(`    Bit depth: ${track.bitDepth || 'not specified'}`);
+				console.log(`    Language (ISO 639-2): ${track.languageCode || 'unknown'}`);
+				console.log(`    Language (BCP 47): ${track.languageBCP47 || 'not specified'}`);
+				console.log(`    Name: ${track.name || 'untitled'}`);
+				console.log(`    Default: ${track.isDefault}`);
+				console.log(`    Forced: ${track.isForced}`);
+				console.log(`    Codec delay: ${track.codecDelay / 1000000}ms`);
+				console.log(`    Seek pre-roll: ${track.seekPreRoll / 1000000}ms`);
+			}
+		}
+		
 		if (subtitleTracks.length === 0) {
 			console.log('\n⚠️  No subtitle tracks found in this file.');
 			return;
@@ -54,9 +94,12 @@ async function testSubtitleExtraction(filePath) {
 		for (let i = 0; i < subtitleTracks.length; i++) {
 			const track = subtitleTracks[i];
 			console.log(`\n  Track ${i + 1} (ID: ${track.id}):`);
-			console.log(`    Language: ${track.languageCode || 'unknown'}`);
-			console.log(`    Codec: ${track.codec || 'unknown'}`);
+			console.log(`    Language (ISO 639-2): ${track.languageCode || 'unknown'}`);
+			console.log(`    Language (BCP 47): ${track.languageBCP47 || 'not specified'}`);
+			console.log(`    Codec: ${track.codec || `unknown (${track.codecId || 'no codec ID'})`}`);
 			console.log(`    Name: ${track.name || 'untitled'}`);
+			console.log(`    Default: ${track.isDefault}`);
+			console.log(`    Forced: ${track.isForced}`);
 			
 			// Extract first few subtitle cues
 			const sink = new SubtitlePacketSink(track);

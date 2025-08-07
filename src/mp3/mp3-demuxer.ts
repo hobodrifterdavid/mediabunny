@@ -140,7 +140,42 @@ class Mp3AudioTrackBacking implements InputAudioTrackBacking {
 		return UNDETERMINED_LANGUAGE;
 	}
 
+	getLanguageBCP47() {
+		// MP3 files don't have language metadata
+		return null;
+	}
+
+	getName() {
+		// MP3 files don't have track names in metadata
+		return null;
+	}
+
+	isDefault() {
+		return true; // Single track is always default
+	}
+
+	isForced() {
+		return false;
+	}
+
+	getDefaultDuration() {
+		// MP3 frame duration depends on bitrate and sample rate
+		return null;
+	}
+
+	getCodecDelay() {
+		return 0;
+	}
+
+	getSeekPreRoll() {
+		return 0;
+	}
+
 	getCodec(): AudioCodec {
+		return 'mp3';
+	}
+
+	getCodecId() {
 		return 'mp3';
 	}
 
@@ -152,6 +187,11 @@ class Mp3AudioTrackBacking implements InputAudioTrackBacking {
 	getSampleRate() {
 		assert(this.demuxer.firstFrameHeader);
 		return this.demuxer.firstFrameHeader.sampleRate;
+	}
+
+	getBitDepth() {
+		// MP3 is a lossy codec, bit depth not applicable
+		return null;
 	}
 
 	async getDecoderConfig(): Promise<AudioDecoderConfig> {

@@ -32,7 +32,15 @@ export type PacketStats = {
 export interface InputTrackBacking {
 	getId(): number;
 	getCodec(): MediaCodec | null;
+	getCodecId(): string | null;
 	getLanguageCode(): string;
+	getLanguageBCP47(): string | null;
+	getName(): string | null;
+	isDefault(): boolean;
+	isForced(): boolean;
+	getDefaultDuration(): number | null;
+	getCodecDelay(): number;
+	getSeekPreRoll(): number;
 	getTimeResolution(): number;
 	getFirstTimestamp(): Promise<number>;
 	computeDuration(): Promise<number>;
@@ -61,6 +69,12 @@ export abstract class InputTrack {
 	abstract get type(): TrackType;
 	/** The codec of the track's packets. */
 	abstract get codec(): MediaCodec | null;
+
+	/** The raw codec ID string from the media file (e.g., "A_EAC3" for E-AC3 in Matroska). Useful when codec is not recognized. */
+	get codecId() {
+		return this._backing.getCodecId();
+	}
+
 	/** Returns the full codec parameter string for this track. */
 	abstract getCodecParameterString(): Promise<string | null>;
 	/** Checks if this track's packets can be decoded by the browser. */
@@ -86,14 +100,57 @@ export abstract class InputTrack {
 		return this instanceof InputSubtitleTrack;
 	}
 
-	/** The unique ID of this track in the input file. */
+	/** The track's id. */
 	get id() {
 		return this._backing.getId();
 	}
 
-	/** The ISO 639-2/T language code for this track. If the language is unknown, this field is 'und' (undetermined). */
+	/** 
+	 * The ISO 639-2/T language code for this track (e.g., "eng", "fre", "jpn"). 
+	 * Returns "und" (undetermined) if not specified in the file.
+	 * Note: Some formats may not provide this field.
+	 */
 	get languageCode() {
 		return this._backing.getLanguageCode();
+	}
+
+	/** 
+	 * The BCP 47 language tag for this track (e.g., "en", "en-US", "zh-Hans"). 
+	 * Returns null if not specified in the file.
+	 * Note: This is independent of languageCode - a file may have one, both, or neither.
+	 */
+	get languageBCP47() {
+		return this._backing.getLanguageBCP47();
+	}
+
+	/** The name/title of this track as specified in the media file. May be null if no name was specified. */
+	get name() {
+		return this._backing.getName();
+	}
+
+	/** Whether this track is marked as the default track to be played. */
+	get isDefault() {
+		return this._backing.isDefault();
+	}
+
+	/** Whether this track is marked as forced (must be displayed/played). Common for forced subtitle tracks. */
+	get isForced() {
+		return this._backing.isForced();
+	}
+
+	/** The default duration of frames in nanoseconds. Null if not specified. Useful for calculating frame rates. */
+	get defaultDuration() {
+		return this._backing.getDefaultDuration();
+	}
+
+	/** Codec-specific delay in nanoseconds. Important for audio/video sync. */
+	get codecDelay() {
+		return this._backing.getCodecDelay();
+	}
+
+	/** Amount of time in nanoseconds to roll back when seeking. Important for codecs like Opus. */
+	get seekPreRoll() {
+		return this._backing.getSeekPreRoll();
 	}
 
 	/**
@@ -294,6 +351,8 @@ export interface InputAudioTrackBacking extends InputTrackBacking {
 	getCodec(): AudioCodec | null;
 	getNumberOfChannels(): number;
 	getSampleRate(): number;
+	getBitDepth(): number | null;
+
 	getDecoderConfig(): Promise<AudioDecoderConfig | null>;
 }
 
@@ -328,6 +387,11 @@ export class InputAudioTrack extends InputTrack {
 	/** The track's audio sample rate in hertz. */
 	get sampleRate() {
 		return this._backing.getSampleRate();
+	}
+
+	/** The bit depth of audio samples (e.g., 16, 24, 32). Null if not specified or not applicable. */
+	get bitDepth() {
+		return this._backing.getBitDepth();
 	}
 
 	/**

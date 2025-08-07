@@ -74,6 +74,8 @@ export enum EBMLId {
 	FlagForced = 0x55aa,
 	FlagLacing = 0x9c,
 	Language = 0x22b59c,
+	LanguageIETF = 0x22b59d,
+	Name = 0x536e,
 	CodecID = 0x86,
 	CodecPrivate = 0x63a2,
 	CodecDelay = 0x56aa,

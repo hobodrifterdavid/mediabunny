@@ -134,10 +134,18 @@ type InternalTrack = {
 	cuePoints: CuePoint[];
 
 	isDefault: boolean;
+	isForced: boolean;
+	isEnabled: boolean;
+	isLacing: boolean;
+	defaultDuration: number | null;
+	codecDelay: number;
+	seekPreRoll: number;
 	inputTrack: InputTrack | null;
 	codecId: string | null;
 	codecPrivate: Uint8Array | null;
 	languageCode: string;
+	languageBCP47: string | null;
+	name: string | null;
 	info:
 		| null
 		| {
@@ -663,10 +671,18 @@ export class MatroskaDemuxer extends Demuxer {
 					cuePoints: [],
 
 					isDefault: false,
+					isForced: false,
+					isEnabled: true,
+					isLacing: false,
+					defaultDuration: null,
+					codecDelay: 0,
+					seekPreRoll: 0,
 					inputTrack: null,
 					codecId: null,
 					codecPrivate: null,
 					languageCode: UNDETERMINED_LANGUAGE,
+					languageBCP47: null,
+					name: null,
 					info: null,
 				};
 
@@ -728,33 +744,31 @@ export class MatroskaDemuxer extends Demuxer {
 						} else if (codecIdWithoutSuffix === CODEC_STRING_MAP.flac) {
 							this.currentTrack.info.codec = 'flac';
 							this.currentTrack.info.codecDescription = this.currentTrack.codecPrivate;
-						} else if (this.currentTrack.codecId === 'A_PCM/INT/LIT') {
-							if (this.currentTrack.info.bitDepth === 8) {
+						} else if (
+							codecIdWithoutSuffix === 'A_PCM/INT/LIT'
+							|| codecIdWithoutSuffix === 'A_PCM/INT/BIG'
+							|| codecIdWithoutSuffix === 'A_PCM/FLOAT/IEEE'
+						) {
+							const isFloat = codecIdWithoutSuffix === 'A_PCM/FLOAT/IEEE';
+							const isBigEndian = codecIdWithoutSuffix === 'A_PCM/INT/BIG';
+							const bitDepth = this.currentTrack.info.bitDepth;
+
+							if (isFloat && bitDepth === 32) {
+								this.currentTrack.info.codec = isBigEndian ? 'pcm-f32be' : 'pcm-f32';
+							} else if (isFloat && bitDepth === 64) {
+								this.currentTrack.info.codec = isBigEndian ? 'pcm-f64be' : 'pcm-f64';
+							} else if (bitDepth === 8) {
 								this.currentTrack.info.codec = 'pcm-u8';
-							} else if (this.currentTrack.info.bitDepth === 16) {
-								this.currentTrack.info.codec = 'pcm-s16';
-							} else if (this.currentTrack.info.bitDepth === 24) {
-								this.currentTrack.info.codec = 'pcm-s24';
-							} else if (this.currentTrack.info.bitDepth === 32) {
-								this.currentTrack.info.codec = 'pcm-s32';
-							}
-						} else if (this.currentTrack.codecId === 'A_PCM/INT/BIG') {
-							if (this.currentTrack.info.bitDepth === 8) {
-								this.currentTrack.info.codec = 'pcm-u8';
-							} else if (this.currentTrack.info.bitDepth === 16) {
-								this.currentTrack.info.codec = 'pcm-s16be';
-							} else if (this.currentTrack.info.bitDepth === 24) {
-								this.currentTrack.info.codec = 'pcm-s24be';
-							} else if (this.currentTrack.info.bitDepth === 32) {
-								this.currentTrack.info.codec = 'pcm-s32be';
-							}
-						} else if (this.currentTrack.codecId === 'A_PCM/FLOAT/IEEE') {
-							if (this.currentTrack.info.bitDepth === 32) {
-								this.currentTrack.info.codec = 'pcm-f32';
-							} else if (this.currentTrack.info.bitDepth === 64) {
-								this.currentTrack.info.codec = 'pcm-f64';
+							} else if (bitDepth === 16) {
+								this.currentTrack.info.codec = isBigEndian ? 'pcm-s16be' : 'pcm-s16';
+							} else if (bitDepth === 24) {
+								this.currentTrack.info.codec = isBigEndian ? 'pcm-s24be' : 'pcm-s24';
+							} else if (bitDepth === 32) {
+								this.currentTrack.info.codec = isBigEndian ? 'pcm-s32be' : 'pcm-s32';
 							}
 						}
+						// If we still don't have a codec, keep the track but without a specific codec
+						// This allows the metadata to be accessible even if we can't decode it
 
 						const audioTrack = this.currentTrack as InternalAudioTrack;
 						const inputTrack = new InputAudioTrack(new MatroskaAudioTrackBacking(audioTrack));
@@ -849,6 +863,39 @@ export class MatroskaDemuxer extends Demuxer {
 				this.currentTrack.isDefault = !!reader.readUnsignedInt(size);
 			}; break;
 
+			case EBMLId.FlagForced: {
+				if (!this.currentTrack) break;
+
+				this.currentTrack.isForced = !!reader.readUnsignedInt(size);
+			}; break;
+
+			case EBMLId.FlagLacing: {
+				if (!this.currentTrack) break;
+
+				this.currentTrack.isLacing = !!reader.readUnsignedInt(size);
+			}; break;
+
+			case EBMLId.DefaultDuration: {
+				if (!this.currentTrack) break;
+
+				// DefaultDuration is in nanoseconds
+				this.currentTrack.defaultDuration = reader.readUnsignedInt(size);
+			}; break;
+
+			case EBMLId.CodecDelay: {
+				if (!this.currentTrack) break;
+
+				// CodecDelay is in nanoseconds
+				this.currentTrack.codecDelay = reader.readUnsignedInt(size);
+			}; break;
+
+			case EBMLId.SeekPreRoll: {
+				if (!this.currentTrack) break;
+
+				// SeekPreRoll is in nanoseconds
+				this.currentTrack.seekPreRoll = reader.readUnsignedInt(size);
+			}; break;
+
 			case EBMLId.CodecID: {
 				if (!this.currentTrack) break;
 
@@ -869,6 +916,19 @@ export class MatroskaDemuxer extends Demuxer {
 				if (!isIso639Dash2LanguageCode(this.currentTrack.languageCode)) {
 					this.currentTrack.languageCode = UNDETERMINED_LANGUAGE;
 				}
+			}; break;
+
+			case EBMLId.LanguageIETF: {
+				if (!this.currentTrack) break;
+				
+				// LanguageIETF uses BCP 47 language codes (like "en", "en-US", etc.)
+				this.currentTrack.languageBCP47 = reader.readString(size);
+			}; break;
+
+			case EBMLId.Name: {
+				if (!this.currentTrack) break;
+
+				this.currentTrack.name = reader.readString(size);
 			}; break;
 
 			case EBMLId.Video: {
@@ -1102,16 +1162,48 @@ abstract class MatroskaTrackBacking implements InputTrackBacking {
 	}
 
 	getCodec(): MediaCodec | null {
-		throw new Error('Not implemented on base class.');
+		return null;
+	}
+
+	getCodecId() {
+		return this.internalTrack.codecId;
+	}
+
+	getLanguageCode() {
+		return this.internalTrack.languageCode;
+	}
+
+	getLanguageBCP47() {
+		return this.internalTrack.languageBCP47;
+	}
+
+	getName() {
+		return this.internalTrack.name;
+	}
+
+	isDefault() {
+		return this.internalTrack.isDefault;
+	}
+
+	isForced() {
+		return this.internalTrack.isForced;
+	}
+
+	getDefaultDuration() {
+		return this.internalTrack.defaultDuration;
+	}
+
+	getCodecDelay() {
+		return this.internalTrack.codecDelay;
+	}
+
+	getSeekPreRoll() {
+		return this.internalTrack.seekPreRoll;
 	}
 
 	async computeDuration() {
 		const lastPacket = await this.getPacket(Infinity, { metadataOnly: true });
 		return (lastPacket?.timestamp ?? 0) + (lastPacket?.duration ?? 0);
-	}
-
-	getLanguageCode() {
-		return this.internalTrack.languageCode;
 	}
 
 	async getFirstTimestamp() {
@@ -1686,6 +1778,10 @@ class MatroskaAudioTrackBacking extends MatroskaTrackBacking implements InputAud
 
 	getSampleRate() {
 		return this.internalTrack.info.sampleRate;
+	}
+
+	getBitDepth() {
+		return this.internalTrack.info.bitDepth > 0 ? this.internalTrack.info.bitDepth : null;
 	}
 
 	async getDecoderConfig(): Promise<AudioDecoderConfig | null> {
