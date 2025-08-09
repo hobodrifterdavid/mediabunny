@@ -152,7 +152,6 @@ type InternalTrack = {
 	inputTrack: InputTrack | null;
 	codecId: string | null;
 	codecPrivate: Uint8Array | null;
-	defaultDuration: number | null;
 	languageCode: string;
 	languageBCP47: string | null;
 	name: string | null;
@@ -818,18 +817,17 @@ export class MatroskaDemuxer extends Demuxer {
 					cuePoints: [],
 
 					isDefault: false,
-					isForced: false,
-					isEnabled: true,
-					isLacing: false,
-					defaultDuration: null,
-					codecDelay: 0,
-					seekPreRoll: 0,
-					inputTrack: null,
-					codecId: null,
-					codecPrivate: null,
-					defaultDuration: null,
-					languageCode: UNDETERMINED_LANGUAGE,
-					languageBCP47: null,
+									isForced: false,
+				isEnabled: true,
+				isLacing: false,
+				defaultDuration: null,
+				codecDelay: 0,
+				seekPreRoll: 0,
+				inputTrack: null,
+				codecId: null,
+				codecPrivate: null,
+				languageCode: UNDETERMINED_LANGUAGE,
+				languageBCP47: null,
 					name: null,
 					info: null,
 				};

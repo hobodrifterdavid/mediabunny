@@ -37,6 +37,7 @@ import {
 } from './media-source';
 import { assert, clamp, normalizeRotation, promiseWithResolvers, Rotation } from './misc';
 import { Output, TrackType } from './output';
+import { EncodedPacket } from './packet';
 import { AudioSample, VideoSample } from './sample';
 
 /**
@@ -112,6 +113,14 @@ export type ConversionOptions = {
 		start: number;
 		/** The time in the input file in seconds at which the output file should end. Must be greater than `start`. */
 		end: number;
+	};
+
+	/** Options to filter tracks. */
+	tracks?: {
+		/** Specific track indices to include (0-based). */
+		indices?: number[];
+		/** If true, only audio tracks will be included. */
+		audioOnly?: boolean;
 	};
 };
 
@@ -320,6 +329,19 @@ export class Conversion {
 			&& options.trim.start >= options.trim.end) {
 			throw new TypeError('options.trim.start must be less than options.trim.end.');
 		}
+		if (options.tracks !== undefined && (!options.tracks || typeof options.tracks !== 'object')) {
+			throw new TypeError('options.tracks, when provided, must be an object.');
+		}
+		if (
+			options.tracks?.indices !== undefined
+			&& (!Array.isArray(options.tracks.indices)
+				|| !options.tracks.indices.every(i => Number.isInteger(i) && i >= 0))
+		) {
+			throw new TypeError('options.tracks.indices, when provided, must be an array of non-negative integers.');
+		}
+		if (options.tracks?.audioOnly !== undefined && typeof options.tracks.audioOnly !== 'boolean') {
+			throw new TypeError('options.tracks.audioOnly, when provided, must be a boolean.');
+		}
 
 		this._options = options;
 		this.input = options.input;
@@ -335,8 +357,20 @@ export class Conversion {
 
 	/** @internal */
 	async _init() {
-		const inputTracks = await this.input.getTracks();
+		let inputTracks = await this.input.getTracks();
 		const outputTrackCounts = this.output.format.getSupportedTrackCounts();
+
+		// Filter tracks based on options
+		if (this._options.tracks) {
+			if (this._options.tracks.indices !== undefined) {
+				inputTracks = inputTracks.filter((_, index) =>
+					this._options.tracks!.indices!.includes(index),
+				);
+			}
+			if (this._options.tracks.audioOnly) {
+				inputTracks = inputTracks.filter(track => track.type === 'audio');
+			}
+		}
 
 		for (const track of inputTracks) {
 			if (track.isVideoTrack() && this._options.video?.discard) {
@@ -776,8 +810,8 @@ export class Conversion {
 		let sampleRate = this._options.audio?.sampleRate ?? originalSampleRate;
 		let needsResample = numberOfChannels !== originalNumberOfChannels
 			|| sampleRate !== originalSampleRate
-			|| this._startTimestamp > 0
-			|| firstTimestamp < 0;
+			|| this._startTimestamp > 0;
+			// Removed: || firstTimestamp < 0 - negative timestamps don't require resampling
 
 		let audioCodecs = this.output.format.getSupportedAudioCodecs();
 		if (
@@ -802,17 +836,32 @@ export class Conversion {
 					? await sink.getPacket(this._endTimestamp, { metadataOnly: true }) ?? undefined
 					: undefined;
 
+				// Add timestamp offset handling for negative timestamps
+				const timestampOffset = firstTimestamp < 0 ? -firstTimestamp : 0;
+
 				for await (const packet of sink.packets(undefined, endPacket)) {
-					if (this._synchronizer.shouldWait(track.id, packet.timestamp)) {
-						await this._synchronizer.wait(packet.timestamp);
+					// Offset negative timestamps to make them non-negative
+					const adjustedPacket = timestampOffset > 0
+						? new EncodedPacket(
+							packet.data,
+							packet.type,
+							packet.timestamp + timestampOffset,
+							packet.duration,
+							packet.sequenceNumber,
+							packet.byteLength,
+						)
+						: packet;
+
+					if (this._synchronizer.shouldWait(track.id, adjustedPacket.timestamp)) {
+						await this._synchronizer.wait(adjustedPacket.timestamp);
 					}
 
 					if (this._canceled) {
 						return;
 					}
 
-					await source.add(packet, meta);
-					this._reportProgress(track.id, packet.timestamp + packet.duration);
+					await source.add(adjustedPacket, meta);
+					this._reportProgress(track.id, adjustedPacket.timestamp + adjustedPacket.duration);
 				}
 
 				source.close();
