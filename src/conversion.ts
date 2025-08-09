@@ -362,13 +362,15 @@ export class Conversion {
 
 		// Filter tracks based on options
 		if (this._options.tracks) {
+			// First filter by track type if audioOnly is specified
+			if (this._options.tracks.audioOnly) {
+				inputTracks = inputTracks.filter(track => track.type === 'audio');
+			}
+			// Then filter by indices - indices now apply to the filtered list
 			if (this._options.tracks.indices !== undefined) {
 				inputTracks = inputTracks.filter((_, index) =>
 					this._options.tracks!.indices!.includes(index),
 				);
-			}
-			if (this._options.tracks.audioOnly) {
-				inputTracks = inputTracks.filter(track => track.type === 'audio');
 			}
 		}
 
