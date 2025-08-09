@@ -60,6 +60,7 @@ import {
 	LEVEL_0_AND_1_EBML_IDS,
 	MAX_HEADER_SIZE,
 	MIN_HEADER_SIZE,
+	readVarInt,
 } from './ebml';
 import { buildMatroskaMimeType } from './matroska-misc';
 import { SubtitleConfig } from '../subtitles';
@@ -111,12 +112,20 @@ type ClusterTrackData = {
 	}[];
 };
 
+enum BlockLacing {
+	None,
+	Xiph,
+	FixedSize,
+	Ebml,
+}
+
 type ClusterBlock = {
 	timestamp: number;
 	duration: number;
 	isKeyFrame: boolean;
 	referencedTimestamps: number[];
 	data: Uint8Array;
+	lacing: BlockLacing;
 };
 
 type CuePoint = {
@@ -143,6 +152,7 @@ type InternalTrack = {
 	inputTrack: InputTrack | null;
 	codecId: string | null;
 	codecPrivate: Uint8Array | null;
+	defaultDuration: number | null;
 	languageCode: string;
 	languageBCP47: string | null;
 	name: string | null;
@@ -513,16 +523,20 @@ export class MatroskaDemuxer extends Demuxer {
 		this.readContiguousElements(this.clusterReader, size);
 
 		for (const [trackId, trackData] of cluster.trackData) {
-			let blockReferencesExist = false;
+			const track = segment.tracks.find(x => x.id === trackId) ?? null;
 
 			// This must hold, as track datas only get created if a block for that track is encountered
 			assert(trackData.blocks.length > 0);
+
+			let blockReferencesExist = false;
+			let hasLacedBlocks = false;
 
 			for (let i = 0; i < trackData.blocks.length; i++) {
 				const block = trackData.blocks[i]!;
 				block.timestamp += cluster.timestamp;
 
 				blockReferencesExist ||= block.referencedTimestamps.length > 0;
+				hasLacedBlocks ||= block.lacing !== BlockLacing.None;
 			}
 
 			if (blockReferencesExist) {
@@ -545,7 +559,27 @@ export class MatroskaDemuxer extends Demuxer {
 					// Update block durations based on presentation order
 					const nextEntry = trackData.presentationTimestamps[i + 1]!;
 					currentBlock.duration = nextEntry.timestamp - currentBlock.timestamp;
+				} else if (currentBlock.duration === 0) {
+					if (track?.defaultDuration != null) {
+						if (currentBlock.lacing === BlockLacing.None) {
+							currentBlock.duration = track.defaultDuration;
+						} else {
+							// Handled by the lace resolution code
+						}
+					}
 				}
+			}
+
+			if (hasLacedBlocks) {
+				// Perform lace resolution. Here, we expand each laced block into multiple blocks where each contains
+				// one frame of the lace. We do this after determining block timestamps so we can properly distribute
+				// the block's duration across the laced frames.
+				this.expandLacedBlocks(trackData.blocks, track);
+
+				// Recompute since blocks have changed
+				trackData.presentationTimestamps = trackData.blocks
+					.map((block, i) => ({ timestamp: block.timestamp, blockIndex: i }))
+					.sort((a, b) => a.timestamp - b.timestamp);
 			}
 
 			const firstBlock = trackData.blocks[trackData.presentationTimestamps[0]!.blockIndex]!;
@@ -554,7 +588,6 @@ export class MatroskaDemuxer extends Demuxer {
 			trackData.startTimestamp = firstBlock.timestamp;
 			trackData.endTimestamp = lastBlock.timestamp + lastBlock.duration;
 
-			const track = segment.tracks.find(x => x.id === trackId);
 			if (track) {
 				const insertionIndex = binarySearchLessOrEqual(
 					track.clusters,
@@ -601,6 +634,120 @@ export class MatroskaDemuxer extends Demuxer {
 		}
 
 		return trackData;
+	}
+
+	expandLacedBlocks(blocks: ClusterBlock[], track: InternalTrack | null) {
+		// https://www.matroska.org/technical/notes.html#block-lacing
+
+		for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+			const originalBlock = blocks[blockIndex]!;
+			if (originalBlock.lacing === BlockLacing.None) {
+				continue;
+			}
+
+			const data = originalBlock.data;
+			let pos = 0;
+
+			const frameSizes: number[] = [];
+			const frameCount = data[pos]! + 1;
+			pos++;
+
+			switch (originalBlock.lacing) {
+				case BlockLacing.Xiph: {
+					let totalUsedSize = 0;
+
+					// Xiph lacing, just like in Ogg
+					for (let i = 0; i < frameCount - 1; i++) {
+						let frameSize = 0;
+
+						while (pos < data.length) {
+							const value = data[pos]!;
+							frameSize += value;
+							pos++;
+
+							if (value < 255) {
+								frameSizes.push(frameSize);
+								totalUsedSize += frameSize;
+
+								break;
+							}
+						}
+					}
+
+					// Compute the last frame's size from whatever's left
+					frameSizes.push(data.length - (pos + totalUsedSize));
+				}; break;
+
+				case BlockLacing.FixedSize: {
+					// Fixed size lacing: all frames have same size
+					const totalDataSize = data.length - 1; // Minus the frame count byte
+					const frameSize = Math.floor(totalDataSize / frameCount);
+
+					for (let i = 0; i < frameCount; i++) {
+						frameSizes.push(frameSize);
+					}
+				}; break;
+
+				case BlockLacing.Ebml: {
+					// EBML lacing: first size absolute, subsequent ones are coded as signed differences from the last
+					const firstResult = readVarInt(data, pos);
+					let currentSize = firstResult.value;
+					frameSizes.push(currentSize);
+					pos += firstResult.width;
+
+					let totalUsedSize = currentSize;
+
+					for (let i = 1; i < frameCount - 1; i++) {
+						const diffResult = readVarInt(data, pos);
+						const unsignedDiff = diffResult.value;
+						const bias = (1 << (diffResult.width * 7 - 1)) - 1; // Typo-corrected version of 2^((7*n)-1)^-1
+						const diff = unsignedDiff - bias;
+
+						currentSize += diff;
+						frameSizes.push(currentSize);
+						pos += diffResult.width;
+
+						totalUsedSize += currentSize;
+					}
+
+					// Compute the last frame's size from whatever's left
+					frameSizes.push(data.length - (pos + totalUsedSize));
+				}; break;
+
+				default: assert(false);
+			}
+
+			assert(frameSizes.length === frameCount);
+
+			blocks.splice(blockIndex, 1); // Remove the original block
+			let dataOffset = pos;
+
+			// Now, let's insert each frame as its own block
+			for (let i = 0; i < frameCount; i++) {
+				const frameSize = frameSizes[i]!;
+				const frameData = data.subarray(dataOffset, dataOffset + frameSize);
+
+				const blockDuration = originalBlock.duration || (frameCount * (track?.defaultDuration ?? 0));
+
+				// Distribute timestamps evenly across the block duration
+				const frameTimestamp = originalBlock.timestamp + (blockDuration * i / frameCount);
+				const frameDuration = blockDuration / frameCount;
+
+				blocks.splice(blockIndex + i, 0, {
+					timestamp: frameTimestamp,
+					duration: frameDuration,
+					isKeyFrame: originalBlock.isKeyFrame,
+					referencedTimestamps: originalBlock.referencedTimestamps,
+					data: frameData,
+					lacing: BlockLacing.None,
+				});
+
+				dataOffset += frameSize;
+			}
+
+			blockIndex += frameCount; // Skip the blocks we just added
+			blockIndex--;
+		}
 	}
 
 	readContiguousElements(reader: EBMLReader, totalSize: number) {
@@ -680,6 +827,7 @@ export class MatroskaDemuxer extends Demuxer {
 					inputTrack: null,
 					codecId: null,
 					codecPrivate: null,
+					defaultDuration: null,
 					languageCode: UNDETERMINED_LANGUAGE,
 					languageBCP47: null,
 					name: null,
@@ -908,6 +1056,13 @@ export class MatroskaDemuxer extends Demuxer {
 				this.currentTrack.codecPrivate = reader.readBytes(size);
 			}; break;
 
+			case EBMLId.DefaultDuration: {
+				if (!this.currentTrack) break;
+
+				this.currentTrack.defaultDuration
+					= this.currentTrack.segment.timestampFactor * reader.readUnsignedInt(size) / 1e9;
+			}; break;
+
 			case EBMLId.Language: {
 				if (!this.currentTrack) break;
 
@@ -1082,14 +1237,16 @@ export class MatroskaDemuxer extends Demuxer {
 
 				const flags = reader.readU8();
 				const isKeyFrame = !!(flags & 0x80);
+				const lacing = (flags >> 1) & 0x3 as BlockLacing; // If the block is laced, we'll expand it later
 
 				const trackData = this.getTrackDataInCluster(this.currentCluster, trackNumber);
 				trackData.blocks.push({
 					timestamp: relativeTimestamp, // We'll add the cluster's timestamp to this later
-					duration: 0,
+					duration: 0, // Will set later
 					isKeyFrame,
 					referencedTimestamps: [],
 					data: reader.readBytes(size - (reader.pos - dataStartPos)),
+					lacing,
 				});
 			}; break;
 
@@ -1113,16 +1270,17 @@ export class MatroskaDemuxer extends Demuxer {
 				const trackNumber = reader.readVarInt();
 				const relativeTimestamp = reader.readS16();
 
-				// eslint-disable-next-line @typescript-eslint/no-unused-vars
 				const flags = reader.readU8();
+				const lacing = (flags >> 1) & 0x3 as BlockLacing; // If the block is laced, we'll expand it later
 
 				const trackData = this.getTrackDataInCluster(this.currentCluster, trackNumber);
 				this.currentBlock = {
 					timestamp: relativeTimestamp, // We'll add the cluster's timestamp to this later
-					duration: 0,
+					duration: 0, // Will set later
 					isKeyFrame: true,
 					referencedTimestamps: [],
 					data: reader.readBytes(size - (reader.pos - dataStartPos)),
+					lacing,
 				};
 				trackData.blocks.push(this.currentBlock);
 			}; break;
@@ -1277,7 +1435,6 @@ abstract class MatroskaTrackBacking implements InputTrackBacking {
 		}
 
 		const trackData = locationInCluster.cluster.trackData.get(this.internalTrack.id)!;
-		const block = trackData.blocks[locationInCluster.blockIndex]!;
 
 		const clusterIndex = binarySearchExact(
 			this.internalTrack.clusters,
@@ -1325,7 +1482,7 @@ abstract class MatroskaTrackBacking implements InputTrackBacking {
 					};
 				}
 			},
-			block.timestamp,
+			-Infinity, // Use -Infinity as a search timestamp to avoid using the cues
 			Infinity,
 			options,
 		);
@@ -1349,7 +1506,6 @@ abstract class MatroskaTrackBacking implements InputTrackBacking {
 		}
 
 		const trackData = locationInCluster.cluster.trackData.get(this.internalTrack.id)!;
-		const block = trackData.blocks[locationInCluster.blockIndex]!;
 
 		const clusterIndex = binarySearchExact(
 			this.internalTrack.clusters,
@@ -1404,7 +1560,7 @@ abstract class MatroskaTrackBacking implements InputTrackBacking {
 					};
 				}
 			},
-			block.timestamp,
+			-Infinity, // Use -Infinity as a search timestamp to avoid using the cues
 			Infinity,
 			options,
 		);

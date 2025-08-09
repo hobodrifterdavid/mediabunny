@@ -180,7 +180,7 @@ const generateVideo = async () => {
 		videoInfo.style.display = '';
 
 		// Display and play the resulting media file
-		const videoBlob = new Blob([output.target.buffer!], { type: 'video/mp4' });
+		const videoBlob = new Blob([output.target.buffer!], { type: output.format.mimeType });
 		resultVideo.src = URL.createObjectURL(videoBlob);
 		void resultVideo.play();
 

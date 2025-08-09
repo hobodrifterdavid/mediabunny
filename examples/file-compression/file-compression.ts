@@ -91,7 +91,7 @@ const compressFile = async (file: File) => {
 
 		// Display the final media file
 		videoElement.style.display = '';
-		videoElement.src = URL.createObjectURL(new Blob([output.target.buffer!]));
+		videoElement.src = URL.createObjectURL(new Blob([output.target.buffer!], { type: output.format.mimeType }));
 		void videoElement.play();
 
 		compressionFacts.style.display = '';

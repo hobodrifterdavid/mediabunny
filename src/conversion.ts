@@ -77,6 +77,11 @@ export type ConversionOptions = {
 		 * rotation is _in addition to_ the natural rotation of the input video as specified in input file's metadata.
 		 */
 		rotate?: Rotation;
+		/**
+		 * The desired frame rate of the output video, in hertz. If not specified, the original input frame rate will
+		 * be used (which may be variable).
+		 */
+		frameRate?: number;
 		/** The desired output video codec. */
 		codec?: VideoCodec;
 		/** The desired bitrate of the output video. */
@@ -261,8 +266,14 @@ export class Conversion {
 		if (options.video?.rotate !== undefined && ![0, 90, 180, 270].includes(options.video.rotate)) {
 			throw new TypeError('options.video.rotate, when provided, must be 0, 90, 180 or 270.');
 		}
+		if (
+			options.video?.frameRate !== undefined
+			&& (!Number.isFinite(options.video.frameRate) || options.video.frameRate <= 0)
+		) {
+			throw new TypeError('options.video.frameRate, when provided, must be a finite positive number.');
+		}
 		if (options.audio !== undefined && (!options.audio || typeof options.audio !== 'object')) {
-			throw new TypeError('options.video, when provided, must be an object.');
+			throw new TypeError('options.audio, when provided, must be an object.');
 		}
 		if (options.audio?.discard !== undefined && typeof options.audio.discard !== 'boolean') {
 			throw new TypeError('options.audio.discard, when provided, must be a boolean.');
@@ -470,7 +481,10 @@ export class Conversion {
 		}
 
 		const firstTimestamp = await track.getFirstTimestamp();
-		const needsTranscode = !!this._options.video?.forceTranscode || this._startTimestamp > 0 || firstTimestamp < 0;
+		const needsTranscode = !!this._options.video?.forceTranscode
+			|| this._startTimestamp > 0
+			|| firstTimestamp < 0
+			|| !!this._options.video?.frameRate;
 		const needsRerender = width !== originalWidth
 			|| height !== originalHeight
 			|| (totalRotation !== 0 && !outputSupportsRotation);
@@ -547,10 +561,10 @@ export class Conversion {
 				onEncodedPacket: sample => this._reportProgress(track.id, sample.timestamp + sample.duration),
 			};
 
-			if (needsRerender) {
-				const source = new VideoSampleSource(encodingConfig);
-				videoSource = source;
+			const source = new VideoSampleSource(encodingConfig);
+			videoSource = source;
 
+			if (needsRerender) {
 				this._trackPromises.push((async () => {
 					await this._started;
 
@@ -562,6 +576,27 @@ export class Conversion {
 						poolSize: 1,
 					});
 					const iterator = sink.canvases(this._startTimestamp, this._endTimestamp);
+					const frameRate = this._options.video?.frameRate;
+
+					let lastCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+					let lastCanvasTimestamp: number | null = null;
+					let lastCanvasEndTimestamp: number | null = null;
+
+					/** Repeats the last sample to pad out the time until the specified timestamp. */
+					const padFrames = async (until: number) => {
+						assert(lastCanvas);
+						assert(frameRate !== undefined);
+
+						const frameDifference = Math.round((until - lastCanvasTimestamp!) * frameRate);
+
+						for (let i = 1; i < frameDifference; i++) {
+							const sample = new VideoSample(lastCanvas, {
+								timestamp: lastCanvasTimestamp! + i / frameRate,
+								duration: 1 / frameRate,
+							});
+							await source.add(sample);
+						}
+					};
 
 					for await (const { canvas, timestamp, duration } of iterator) {
 						if (this._synchronizer.shouldWait(track.id, timestamp)) {
@@ -572,37 +607,134 @@ export class Conversion {
 							return;
 						}
 
+						let adjustedSampleTimestamp = Math.max(timestamp - this._startTimestamp, 0);
+						lastCanvasEndTimestamp = timestamp + duration;
+
+						if (frameRate !== undefined) {
+							// Logic for skipping/repeating frames when a frame rate is set
+							const alignedTimestamp = Math.floor(adjustedSampleTimestamp * frameRate) / frameRate;
+
+							if (lastCanvas !== null) {
+								if (alignedTimestamp <= lastCanvasTimestamp!) {
+									lastCanvas = canvas;
+									lastCanvasTimestamp = alignedTimestamp;
+
+									// Skip this sample, since we already added one for this frame
+									continue;
+								} else {
+									// Check if we may need to repeat the previous frame
+									await padFrames(alignedTimestamp);
+								}
+							}
+
+							adjustedSampleTimestamp = alignedTimestamp;
+						}
+
 						const sample = new VideoSample(canvas, {
-							timestamp: Math.max(timestamp - this._startTimestamp, 0),
-							duration,
+							timestamp: adjustedSampleTimestamp,
+							duration: frameRate !== undefined ? 1 / frameRate : duration,
 						});
 
 						await source.add(sample);
-						sample.close();
+
+						if (frameRate !== undefined) {
+							lastCanvas = canvas;
+							lastCanvasTimestamp = adjustedSampleTimestamp;
+						} else {
+							sample.close();
+						}
 					}
+
+					if (lastCanvas) {
+						assert(lastCanvasEndTimestamp !== null);
+						assert(frameRate !== undefined);
+
+						// If necessary, pad until the end timestamp of the last sample
+						await padFrames(Math.floor(lastCanvasEndTimestamp * frameRate) / frameRate);
+					}
+
+					source.close();
+					this._synchronizer.closeTrack(track.id);
 				})());
 			} else {
-				const source = new VideoSampleSource(encodingConfig);
-				videoSource = source;
-
 				this._trackPromises.push((async () => {
 					await this._started;
 
 					const sink = new VideoSampleSink(track);
+					const frameRate = this._options.video?.frameRate;
+
+					let lastSample: VideoSample | null = null;
+					let lastSampleTimestamp: number | null = null;
+					let lastSampleEndTimestamp: number | null = null;
+
+					/** Repeats the last sample to pad out the time until the specified timestamp. */
+					const padFrames = async (until: number) => {
+						assert(lastSample);
+						assert(frameRate !== undefined);
+
+						const frameDifference = Math.round((until - lastSampleTimestamp!) * frameRate);
+
+						for (let i = 1; i < frameDifference; i++) {
+							lastSample.setTimestamp(lastSampleTimestamp! + i / frameRate);
+							lastSample.setDuration(1 / frameRate);
+							await source.add(lastSample);
+						}
+
+						lastSample.close();
+					};
 
 					for await (const sample of sink.samples(this._startTimestamp, this._endTimestamp)) {
 						if (this._synchronizer.shouldWait(track.id, sample.timestamp)) {
 							await this._synchronizer.wait(sample.timestamp);
 						}
 
-						sample.setTimestamp(Math.max(sample.timestamp - this._startTimestamp, 0));
-
 						if (this._canceled) {
+							lastSample?.close();
 							return;
 						}
 
+						let adjustedSampleTimestamp = Math.max(sample.timestamp - this._startTimestamp, 0);
+						lastSampleEndTimestamp = sample.timestamp + sample.duration;
+
+						if (frameRate !== undefined) {
+							// Logic for skipping/repeating frames when a frame rate is set
+							const alignedTimestamp = Math.floor(adjustedSampleTimestamp * frameRate) / frameRate;
+
+							if (lastSample !== null) {
+								if (alignedTimestamp <= lastSampleTimestamp!) {
+									lastSample.close();
+									lastSample = sample;
+									lastSampleTimestamp = alignedTimestamp;
+
+									// Skip this sample, since we already added one for this frame
+									continue;
+								} else {
+									// Check if we may need to repeat the previous frame
+									await padFrames(alignedTimestamp);
+								}
+							}
+
+							adjustedSampleTimestamp = alignedTimestamp;
+							sample.setDuration(1 / frameRate);
+						}
+
+						sample.setTimestamp(adjustedSampleTimestamp);
 						await source.add(sample);
-						sample.close();
+
+						if (frameRate !== undefined) {
+							lastSample = sample;
+							lastSampleTimestamp = adjustedSampleTimestamp;
+						} else {
+							sample.close();
+						}
+					}
+
+					if (lastSample) {
+						assert(lastSampleEndTimestamp !== null);
+						assert(frameRate !== undefined);
+
+						// If necessary, pad until the end timestamp of the last sample
+						await padFrames(Math.floor(lastSampleEndTimestamp * frameRate) / frameRate);
 					}
 
 					source.close();
@@ -612,6 +744,7 @@ export class Conversion {
 		}
 
 		this.output.addVideoTrack(videoSource, {
+			frameRate: this._options.video?.frameRate,
 			languageCode: track.languageCode,
 			rotation: needsRerender ? 0 : totalRotation, // Rerendering will bake the rotation into the output
 		});

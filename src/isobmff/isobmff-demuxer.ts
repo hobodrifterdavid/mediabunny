@@ -2030,44 +2030,46 @@ abstract class IsobmffTrackBacking implements InputTrackBacking {
 	}
 
 	async getFirstPacket(options: PacketRetrievalOptions) {
-		if (this.internalTrack.demuxer.isFragmented) {
-			return this.performFragmentedLookup(
-				() => {
-					const startFragment = this.internalTrack.demuxer.fragments[0] ?? null;
-					if (startFragment?.isKnownToBeFirstFragment) {
-						// Walk from the very first fragment in the file until we find one with our track in it
-						let currentFragment: Fragment | null = startFragment;
-						while (currentFragment) {
-							const trackData = currentFragment.trackData.get(this.internalTrack.id);
-							if (trackData) {
-								return {
-									fragmentIndex: binarySearchExact(
-										this.internalTrack.fragments,
-										currentFragment.moofOffset,
-										x => x.moofOffset,
-									),
-									sampleIndex: 0,
-									correctSampleFound: true,
-								};
-							}
-
-							currentFragment = currentFragment.nextFragment;
-						}
-					}
-
-					return {
-						fragmentIndex: -1,
-						sampleIndex: -1,
-						correctSampleFound: false,
-					};
-				},
-				-Infinity, // Use -Infinity as a search timestamp to avoid using the lookup entries
-				Infinity,
-				options,
-			);
+		const regularPacket = await this.fetchPacketForSampleIndex(0, options);
+		if (regularPacket || !this.internalTrack.demuxer.isFragmented) {
+			// If there's a non-fragmented packet, always prefer that
+			return regularPacket;
 		}
 
-		return this.fetchPacketForSampleIndex(0, options);
+		return this.performFragmentedLookup(
+			() => {
+				const startFragment = this.internalTrack.demuxer.fragments[0] ?? null;
+				if (startFragment?.isKnownToBeFirstFragment) {
+					// Walk from the very first fragment in the file until we find one with our track in it
+					let currentFragment: Fragment | null = startFragment;
+					while (currentFragment) {
+						const trackData = currentFragment.trackData.get(this.internalTrack.id);
+						if (trackData) {
+							return {
+								fragmentIndex: binarySearchExact(
+									this.internalTrack.fragments,
+									currentFragment.moofOffset,
+									x => x.moofOffset,
+								),
+								sampleIndex: 0,
+								correctSampleFound: true,
+							};
+						}
+
+						currentFragment = currentFragment.nextFragment;
+					}
+				}
+
+				return {
+					fragmentIndex: -1,
+					sampleIndex: -1,
+					correctSampleFound: false,
+				};
+			},
+			-Infinity, // Use -Infinity as a search timestamp to avoid using the lookup entries
+			Infinity,
+			options,
+		);
 	}
 
 	private mapTimestampIntoTimescale(timestamp: number) {
@@ -2080,185 +2082,186 @@ abstract class IsobmffTrackBacking implements InputTrackBacking {
 	async getPacket(timestamp: number, options: PacketRetrievalOptions) {
 		const timestampInTimescale = this.mapTimestampIntoTimescale(timestamp);
 
-		if (this.internalTrack.demuxer.isFragmented) {
-			return this.performFragmentedLookup(
-				() => this.findSampleInFragmentsForTimestamp(timestampInTimescale),
-				timestampInTimescale,
-				timestampInTimescale,
-				options,
-			);
-		} else {
-			const sampleTable = this.internalTrack.demuxer.getSampleTableForTrack(this.internalTrack);
-			const sampleIndex = getSampleIndexForTimestamp(sampleTable, timestampInTimescale);
-			return this.fetchPacketForSampleIndex(sampleIndex, options);
+		const sampleTable = this.internalTrack.demuxer.getSampleTableForTrack(this.internalTrack);
+		const sampleIndex = getSampleIndexForTimestamp(sampleTable, timestampInTimescale);
+		const regularPacket = await this.fetchPacketForSampleIndex(sampleIndex, options);
+
+		if (!sampleTableIsEmpty(sampleTable) || !this.internalTrack.demuxer.isFragmented) {
+			// Prefer the non-fragmented packet
+			return regularPacket;
 		}
+
+		return this.performFragmentedLookup(
+			() => this.findSampleInFragmentsForTimestamp(timestampInTimescale),
+			timestampInTimescale,
+			timestampInTimescale,
+			options,
+		);
 	}
 
 	async getNextPacket(packet: EncodedPacket, options: PacketRetrievalOptions) {
-		if (this.internalTrack.demuxer.isFragmented) {
-			const locationInFragment = this.packetToFragmentLocation.get(packet);
-			if (locationInFragment === undefined) {
-				throw new Error('Packet was not created from this track.');
-			}
+		const regularSampleIndex = this.packetToSampleIndex.get(packet);
 
-			const trackData = locationInFragment.fragment.trackData.get(this.internalTrack.id)!;
-			const fragmentSample = trackData.samples[locationInFragment.sampleIndex]!;
-
-			const fragmentIndex = binarySearchExact(
-				this.internalTrack.fragments,
-				locationInFragment.fragment.moofOffset,
-				x => x.moofOffset,
-			);
-			assert(fragmentIndex !== -1);
-
-			return this.performFragmentedLookup(
-				() => {
-					if (locationInFragment.sampleIndex + 1 < trackData.samples.length) {
-						// We can simply take the next sample in the fragment
-						return {
-							fragmentIndex,
-							sampleIndex: locationInFragment.sampleIndex + 1,
-							correctSampleFound: true,
-						};
-					} else {
-						// Walk the list of fragments until we find the next fragment for this track
-						let currentFragment = locationInFragment.fragment;
-						while (currentFragment.nextFragment) {
-							currentFragment = currentFragment.nextFragment;
-
-							const trackData = currentFragment.trackData.get(this.internalTrack.id);
-							if (trackData) {
-								const fragmentIndex = binarySearchExact(
-									this.internalTrack.fragments,
-									currentFragment.moofOffset,
-									x => x.moofOffset,
-								);
-								assert(fragmentIndex !== -1);
-
-								return {
-									fragmentIndex,
-									sampleIndex: 0,
-									correctSampleFound: true,
-								};
-							}
-						}
-
-						return {
-							fragmentIndex,
-							sampleIndex: -1,
-							correctSampleFound: false,
-						};
-					}
-				},
-				fragmentSample.presentationTimestamp,
-				Infinity,
-				options,
-			);
+		if (regularSampleIndex !== undefined) {
+			// Prefer the non-fragmented packet
+			return this.fetchPacketForSampleIndex(regularSampleIndex + 1, options);
 		}
 
-		const sampleIndex = this.packetToSampleIndex.get(packet);
-		if (sampleIndex === undefined) {
+		const locationInFragment = this.packetToFragmentLocation.get(packet);
+		if (locationInFragment === undefined) {
 			throw new Error('Packet was not created from this track.');
 		}
-		return this.fetchPacketForSampleIndex(sampleIndex + 1, options);
+
+		const trackData = locationInFragment.fragment.trackData.get(this.internalTrack.id)!;
+
+		const fragmentIndex = binarySearchExact(
+			this.internalTrack.fragments,
+			locationInFragment.fragment.moofOffset,
+			x => x.moofOffset,
+		);
+		assert(fragmentIndex !== -1);
+
+		return this.performFragmentedLookup(
+			() => {
+				if (locationInFragment.sampleIndex + 1 < trackData.samples.length) {
+					// We can simply take the next sample in the fragment
+					return {
+						fragmentIndex,
+						sampleIndex: locationInFragment.sampleIndex + 1,
+						correctSampleFound: true,
+					};
+				} else {
+					// Walk the list of fragments until we find the next fragment for this track
+					let currentFragment = locationInFragment.fragment;
+					while (currentFragment.nextFragment) {
+						currentFragment = currentFragment.nextFragment;
+
+						const trackData = currentFragment.trackData.get(this.internalTrack.id);
+						if (trackData) {
+							const fragmentIndex = binarySearchExact(
+								this.internalTrack.fragments,
+								currentFragment.moofOffset,
+								x => x.moofOffset,
+							);
+							assert(fragmentIndex !== -1);
+
+							return {
+								fragmentIndex,
+								sampleIndex: 0,
+								correctSampleFound: true,
+							};
+						}
+					}
+
+					return {
+						fragmentIndex,
+						sampleIndex: -1,
+						correctSampleFound: false,
+					};
+				}
+			},
+			-Infinity, // Use -Infinity as a search timestamp to avoid using the lookup entries
+			Infinity,
+			options,
+		);
 	}
 
 	async getKeyPacket(timestamp: number, options: PacketRetrievalOptions) {
 		const timestampInTimescale = this.mapTimestampIntoTimescale(timestamp);
-
-		if (this.internalTrack.demuxer.isFragmented) {
-			return this.performFragmentedLookup(
-				() => this.findKeySampleInFragmentsForTimestamp(timestampInTimescale),
-				timestampInTimescale,
-				timestampInTimescale,
-				options,
-			);
-		}
 
 		const sampleTable = this.internalTrack.demuxer.getSampleTableForTrack(this.internalTrack);
 		const sampleIndex = getSampleIndexForTimestamp(sampleTable, timestampInTimescale);
 		const keyFrameSampleIndex = sampleIndex === -1
 			? -1
 			: getRelevantKeyframeIndexForSample(sampleTable, sampleIndex);
-		return this.fetchPacketForSampleIndex(keyFrameSampleIndex, options);
+		const regularPacket = await this.fetchPacketForSampleIndex(keyFrameSampleIndex, options);
+
+		if (!sampleTableIsEmpty(sampleTable) || !this.internalTrack.demuxer.isFragmented) {
+			// Prefer the non-fragmented packet
+			return regularPacket;
+		}
+
+		return this.performFragmentedLookup(
+			() => this.findKeySampleInFragmentsForTimestamp(timestampInTimescale),
+			timestampInTimescale,
+			timestampInTimescale,
+			options,
+		);
 	}
 
 	async getNextKeyPacket(packet: EncodedPacket, options: PacketRetrievalOptions) {
-		if (this.internalTrack.demuxer.isFragmented) {
-			const locationInFragment = this.packetToFragmentLocation.get(packet);
-			if (locationInFragment === undefined) {
-				throw new Error('Packet was not created from this track.');
-			}
-
-			const trackData = locationInFragment.fragment.trackData.get(this.internalTrack.id)!;
-			const fragmentSample = trackData.samples[locationInFragment.sampleIndex]!;
-
-			const fragmentIndex = binarySearchExact(
-				this.internalTrack.fragments,
-				locationInFragment.fragment.moofOffset,
-				x => x.moofOffset,
-			);
-			assert(fragmentIndex !== -1);
-
-			return this.performFragmentedLookup(
-				() => {
-					const nextKeyFrameIndex = trackData.samples.findIndex(
-						(x, i) => x.isKeyFrame && i > locationInFragment.sampleIndex,
-					);
-
-					if (nextKeyFrameIndex !== -1) {
-						// We can simply take the next key frame in the fragment
-						return {
-							fragmentIndex,
-							sampleIndex: nextKeyFrameIndex,
-							correctSampleFound: true,
-						};
-					} else {
-						// Walk the list of fragments until we find the next fragment for this track with a key frame
-						let currentFragment = locationInFragment.fragment;
-						while (currentFragment.nextFragment) {
-							currentFragment = currentFragment.nextFragment;
-
-							const trackData = currentFragment.trackData.get(this.internalTrack.id);
-							if (trackData && trackData.firstKeyFrameTimestamp !== null) {
-								const fragmentIndex = binarySearchExact(
-									this.internalTrack.fragments,
-									currentFragment.moofOffset,
-									x => x.moofOffset,
-								);
-								assert(fragmentIndex !== -1);
-
-								const keyFrameIndex = trackData.samples.findIndex(x => x.isKeyFrame);
-								assert(keyFrameIndex !== -1); // There must be one
-
-								return {
-									fragmentIndex,
-									sampleIndex: keyFrameIndex,
-									correctSampleFound: true,
-								};
-							}
-						}
-
-						return {
-							fragmentIndex,
-							sampleIndex: -1,
-							correctSampleFound: false,
-						};
-					}
-				},
-				fragmentSample.presentationTimestamp,
-				Infinity,
-				options,
-			);
+		const regularSampleIndex = this.packetToSampleIndex.get(packet);
+		if (regularSampleIndex !== undefined) {
+			// Prefer the non-fragmented packet
+			const sampleTable = this.internalTrack.demuxer.getSampleTableForTrack(this.internalTrack);
+			const nextKeyFrameSampleIndex = getNextKeyframeIndexForSample(sampleTable, regularSampleIndex);
+			return this.fetchPacketForSampleIndex(nextKeyFrameSampleIndex, options);
 		}
 
-		const sampleIndex = this.packetToSampleIndex.get(packet);
-		if (sampleIndex === undefined) {
+		const locationInFragment = this.packetToFragmentLocation.get(packet);
+		if (locationInFragment === undefined) {
 			throw new Error('Packet was not created from this track.');
 		}
-		const sampleTable = this.internalTrack.demuxer.getSampleTableForTrack(this.internalTrack);
-		const nextKeyFrameSampleIndex = getNextKeyframeIndexForSample(sampleTable, sampleIndex);
-		return this.fetchPacketForSampleIndex(nextKeyFrameSampleIndex, options);
+
+		const trackData = locationInFragment.fragment.trackData.get(this.internalTrack.id)!;
+
+		const fragmentIndex = binarySearchExact(
+			this.internalTrack.fragments,
+			locationInFragment.fragment.moofOffset,
+			x => x.moofOffset,
+		);
+		assert(fragmentIndex !== -1);
+
+		return this.performFragmentedLookup(
+			() => {
+				const nextKeyFrameIndex = trackData.samples.findIndex(
+					(x, i) => x.isKeyFrame && i > locationInFragment.sampleIndex,
+				);
+
+				if (nextKeyFrameIndex !== -1) {
+					// We can simply take the next key frame in the fragment
+					return {
+						fragmentIndex,
+						sampleIndex: nextKeyFrameIndex,
+						correctSampleFound: true,
+					};
+				} else {
+					// Walk the list of fragments until we find the next fragment for this track with a key frame
+					let currentFragment = locationInFragment.fragment;
+					while (currentFragment.nextFragment) {
+						currentFragment = currentFragment.nextFragment;
+
+						const trackData = currentFragment.trackData.get(this.internalTrack.id);
+						if (trackData && trackData.firstKeyFrameTimestamp !== null) {
+							const fragmentIndex = binarySearchExact(
+								this.internalTrack.fragments,
+								currentFragment.moofOffset,
+								x => x.moofOffset,
+							);
+							assert(fragmentIndex !== -1);
+
+							const keyFrameIndex = trackData.samples.findIndex(x => x.isKeyFrame);
+							assert(keyFrameIndex !== -1); // There must be one
+
+							return {
+								fragmentIndex,
+								sampleIndex: keyFrameIndex,
+								correctSampleFound: true,
+							};
+						}
+					}
+
+					return {
+						fragmentIndex,
+						sampleIndex: -1,
+						correctSampleFound: false,
+					};
+				}
+			},
+			-Infinity, // Use -Infinity as a search timestamp to avoid using the lookup entries
+			Infinity,
+			options,
+		);
 	}
 
 	private async fetchPacketForSampleIndex(sampleIndex: number, options: PacketRetrievalOptions) {
@@ -2811,4 +2814,8 @@ const extractRotationFromMatrix = (matrix: TransformationMatrix) => {
 
 	// Invert the rotation because matrices are post-multiplied in ISOBMFF
 	return -Math.atan2(sinTheta, cosTheta) * (180 / Math.PI);
+};
+
+const sampleTableIsEmpty = (sampleTable: SampleTable) => {
+	return sampleTable.sampleSizes.length === 0;
 };

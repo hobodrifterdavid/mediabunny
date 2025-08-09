@@ -501,7 +501,13 @@ export class EBMLReader {
 		const { view, offset } = this.reader.getViewAndOffset(this.pos, this.pos + length);
 		this.pos += length;
 
-		return String.fromCharCode(...new Uint8Array(view.buffer, offset, length));
+		// Actual string length might be shorter due to null terminators
+		let strLength = 0;
+		while (strLength < length && view.getUint8(offset + strLength) !== 0) {
+			strLength += 1;
+		}
+
+		return String.fromCharCode(...new Uint8Array(view.buffer, offset, strLength));
 	}
 
 	readElementId() {
@@ -588,6 +594,38 @@ export const CODEC_STRING_MAP: Partial<Record<MediaCodec, string>> = {
 	'pcm-f64': 'A_PCM/FLOAT/IEEE',
 
 	'webvtt': 'S_TEXT/WEBVTT',
+};
+
+export const readVarInt = (data: Uint8Array, offset: number) => {
+	if (offset >= data.length) {
+		throw new Error('Offset out of bounds.');
+	}
+
+	// Read the first byte to determine the width of the variable-length integer
+	const firstByte = data[offset]!;
+
+	// Find the position of VINT_MARKER, which determines the width
+	let width = 1;
+	let mask = 1 << 7;
+	while ((firstByte & mask) === 0 && width < 8) {
+		width++;
+		mask >>= 1;
+	}
+
+	if (offset + width > data.length) {
+		throw new Error('VarInt extends beyond data bounds.');
+	}
+
+	// First byte's value needs the marker bit cleared
+	let value = firstByte & (mask - 1);
+
+	// Read remaining bytes
+	for (let i = 1; i < width; i++) {
+		value *= 1 << 8;
+		value += data[offset + i]!;
+	}
+
+	return { value, width };
 };
 
 export function assertDefinedSize(size: number | null): asserts size is number {

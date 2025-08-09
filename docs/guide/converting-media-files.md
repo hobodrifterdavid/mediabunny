@@ -11,6 +11,7 @@ It has the following features:
 - Trimming
 - Video resizing & fitting
 - Video rotation
+- Video frame rate adjustment
 - Audio resampling
 - Audio up/downmixing
 
@@ -101,6 +102,7 @@ type ConversionOptions = {
 		height?: number;
 		fit?: 'fill' | 'contain' | 'cover';
 		rotate?: 0 | 90 | 180 | 270;
+		frameRate?: number;
 		codec?: VideoCodec;
 		bitrate?: number | Quality;
 		forceTranscode?: boolean;
@@ -140,6 +142,10 @@ The `width`, `height` and `fit` properties control how the video is resized. If 
 `rotation` rotates the video by the specified number of degrees clockwise. This rotation is applied on top of any rotation metadata in the original input file.
 
 If `width` or `height` is used in conjunction with `rotation`, they control the post-rotation dimensions.
+
+### Adjusting frame rate
+
+The `frameRate` property can be used to set the frame rate of the output video in Hz. If not specified, the original input frame rate will be used (which may be variable).
 
 ### Transcoding video
 

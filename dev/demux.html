@@ -16,6 +16,28 @@
 			source
 		});
 
+		const audioTrack = await input.getPrimaryAudioTrack();
+		const sink = new Mediabunny.EncodedPacketSink(audioTrack);
+
+		let thing = await sink.getFirstPacket();
+		while (thing) {
+			console.log(thing);
+			if (thing.timestamp >= 2.4) break;
+
+			thing = await sink.getNextPacket(thing);
+
+		}
+		console.log("done") 
+
+		/*
+		for await (const packet of sink.packets()) {
+			console.log(packet);
+
+			if (packet.timestamp >= 2.4) break;
+		}
+		*/
+
+		/*
 		const videoTrack = await input.getPrimaryVideoTrack();
 		const packetSink = new Mediabunny.EncodedPacketSink(videoTrack);
 		const sampleSink = new Mediabunny.VideoSampleSink(videoTrack);
@@ -29,6 +51,7 @@
 			}
 		}
 		console.log("don")
+		*/
 
 		/*
 		console.time()
