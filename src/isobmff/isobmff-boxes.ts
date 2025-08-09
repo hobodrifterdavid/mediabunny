@@ -1278,6 +1278,10 @@ const audioCodecToBoxName = (codec: AudioCodec, isQuickTime: boolean): string =>
 		case 'opus': return 'Opus';
 		case 'vorbis': return 'mp4a';
 		case 'flac': return 'fLaC';
+		case 'eac3': return 'ec-3';
+		case 'ac3': return 'ac-3';
+		case 'dts': return 'dtsc';
+		case 'truehd': return 'mlpa';
 		case 'ulaw': return 'ulaw';
 		case 'alaw': return 'alaw';
 		case 'pcm-u8': return 'raw ';
@@ -1312,6 +1316,9 @@ const audioCodecToBoxName = (codec: AudioCodec, isQuickTime: boolean): string =>
 			case 'pcm-f64be': return 'fpcm';
 		}
 	}
+	
+	// This should never happen, but TypeScript needs a return for all paths
+	throw new Error(`Unsupported audio codec: ${codec}`);
 };
 
 const audioCodecToConfigurationBox = (codec: AudioCodec, isQuickTime: boolean) => {

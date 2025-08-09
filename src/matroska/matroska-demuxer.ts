@@ -890,6 +890,14 @@ export class MatroskaDemuxer extends Demuxer {
 						} else if (codecIdWithoutSuffix === CODEC_STRING_MAP.flac) {
 							this.currentTrack.info.codec = 'flac';
 							this.currentTrack.info.codecDescription = this.currentTrack.codecPrivate;
+						} else if (codecIdWithoutSuffix === CODEC_STRING_MAP.eac3) {
+							this.currentTrack.info.codec = 'eac3';
+						} else if (codecIdWithoutSuffix === CODEC_STRING_MAP.ac3) {
+							this.currentTrack.info.codec = 'ac3';
+						} else if (codecIdWithoutSuffix === CODEC_STRING_MAP.dts) {
+							this.currentTrack.info.codec = 'dts';
+						} else if (codecIdWithoutSuffix === CODEC_STRING_MAP.truehd) {
+							this.currentTrack.info.codec = 'truehd';
 						} else if (
 							codecIdWithoutSuffix === 'A_PCM/INT/LIT'
 							|| codecIdWithoutSuffix === 'A_PCM/INT/BIG'

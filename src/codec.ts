@@ -68,6 +68,10 @@ export const NON_PCM_AUDIO_CODECS = [
 	'mp3',
 	'vorbis',
 	'flac',
+	'eac3',
+	'ac3',
+	'dts',
+	'truehd',
 ] as const;
 /**
  * List of known audio codecs, ordered by encoding preference.
