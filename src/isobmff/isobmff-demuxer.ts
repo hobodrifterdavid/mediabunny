@@ -1006,6 +1006,30 @@ export class IsobmffDemuxer extends Demuxer {
 						}
 
 						this.readContiguousBoxes((startPos + sampleBoxInfo.totalSize) - this.metadataReader.pos);
+
+						// FALLBACK for YTS files: If we have an mp4a box but codec is still null after parsing,
+						// assume it's AAC. YTS files often have malformed esds boxes.
+						if (lowercaseBoxName === 'mp4a' && track.info.codec === null) {
+							console.warn('mp4a box found but codec not detected from esds, assuming AAC (likely YTS-encoded file)');
+							track.info.codec = 'aac';
+							track.info.aacCodecInfo = { isMpeg2: false }; // Assume AAC-LC (not MPEG-2)
+							
+							// Use default values if not set
+							if (!track.info.sampleRate || track.info.sampleRate === 16) {
+								track.info.sampleRate = 48000; // Common default for AAC
+							}
+							if (!track.info.numberOfChannels || track.info.numberOfChannels === 0) {
+								track.info.numberOfChannels = 2; // Stereo default
+							}
+							
+							// Create a default AAC AudioSpecificConfig if not present
+							// This is a minimal config for AAC-LC, 48kHz, stereo
+							if (!track.info.codecDescription) {
+								// AAC-LC (object type 2), 48kHz (sample rate index 3), 2 channels
+								// Binary: 00010 | 0011 | 0010 | 000... = 0x11 0x90
+								track.info.codecDescription = new Uint8Array([0x11, 0x90]);
+							}
+						}
 					} else if (track.info.type === 'subtitle') {
 						// Handle subtitle sample entries
 						if (lowercaseBoxName === 'wvtt') {
