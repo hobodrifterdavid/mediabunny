@@ -527,6 +527,14 @@ export const buildAudioCodecString = (codec: AudioCodec, numberOfChannels: numbe
 		return 'vorbis';
 	} else if (codec === 'flac') {
 		return 'flac';
+	} else if (codec === 'eac3') {
+		return 'eac3';
+	} else if (codec === 'ac3') {
+		return 'ac3';
+	} else if (codec === 'dts') {
+		return 'dts';
+	} else if (codec === 'truehd') {
+		return 'truehd';
 	} else if ((PCM_AUDIO_CODECS as readonly string[]).includes(codec)) {
 		return codec;
 	}
@@ -564,6 +572,14 @@ export const extractAudioCodecString = (trackInfo: {
 		return 'vorbis';
 	} else if (codec === 'flac') {
 		return 'flac';
+	} else if (codec === 'eac3') {
+		return 'eac3';
+	} else if (codec === 'ac3') {
+		return 'ac3';
+	} else if (codec === 'dts') {
+		return 'dts';
+	} else if (codec === 'truehd') {
+		return 'truehd';
 	} else if (codec && (PCM_AUDIO_CODECS as readonly string[]).includes(codec)) {
 		return codec;
 	}
@@ -782,6 +798,10 @@ export class Quality {
 			opus: 64000, // 64kbps base for Opus
 			mp3: 160000, // 160kbps base for MP3
 			vorbis: 64000, // 64kbps base for Vorbis
+			eac3: 384000, // 384kbps base for E-AC3
+			ac3: 192000, // 192kbps base for AC3
+			dts: 768000, // 768kbps base for DTS
+			truehd: 1000000, // 1Mbps base for TrueHD
 		};
 
 		const baseBitrate = baseRates[codec as keyof typeof baseRates];
