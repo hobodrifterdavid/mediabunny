@@ -507,7 +507,24 @@ export class EBMLReader {
 			strLength += 1;
 		}
 
+		// ASCII/Latin-1 string (for DocType, CodecID, Language)
 		return String.fromCharCode(...new Uint8Array(view.buffer, offset, strLength));
+	}
+
+	readUTF8String(length: number) {
+		const { view, offset } = this.reader.getViewAndOffset(this.pos, this.pos + length);
+		this.pos += length;
+
+		// Actual string length might be shorter due to null terminators
+		let strLength = 0;
+		while (strLength < length && view.getUint8(offset + strLength) !== 0) {
+			strLength += 1;
+		}
+
+		// UTF-8 string (for Name, LanguageBCP47/LanguageIETF)
+		const bytes = new Uint8Array(view.buffer, offset, strLength);
+		const decoder = new TextDecoder('utf-8');
+		return decoder.decode(bytes);
 	}
 
 	readElementId() {

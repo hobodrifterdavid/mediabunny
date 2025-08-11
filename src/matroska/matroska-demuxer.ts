@@ -1083,13 +1083,15 @@ export class MatroskaDemuxer extends Demuxer {
 				if (!this.currentTrack) break;
 				
 				// LanguageIETF uses BCP 47 language codes (like "en", "en-US", etc.)
+				// Type: string (ASCII) according to RFC 9559
 				this.currentTrack.languageBCP47 = reader.readString(size);
 			}; break;
 
 			case EBMLId.Name: {
 				if (!this.currentTrack) break;
 
-				this.currentTrack.name = reader.readString(size);
+				// Name is UTF-8 encoded according to RFC 9559
+				this.currentTrack.name = reader.readUTF8String(size);
 			}; break;
 
 			case EBMLId.Video: {
