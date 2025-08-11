@@ -507,10 +507,7 @@ export class EBMLReader {
 			strLength += 1;
 		}
 
-		// Use TextDecoder to properly decode UTF-8
-		const bytes = new Uint8Array(view.buffer, offset, strLength);
-		const decoder = new TextDecoder('utf-8');
-		return decoder.decode(bytes);
+		return String.fromCharCode(...new Uint8Array(view.buffer, offset, strLength));
 	}
 
 	readElementId() {
