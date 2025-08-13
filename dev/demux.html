@@ -16,6 +16,39 @@
 			source
 		});
 
+		const videoTrack = await input.getPrimaryVideoTrack();
+		const sink = new Mediabunny.EncodedPacketSink(videoTrack);
+
+		for await (const packet of sink.packets(undefined, undefined, { verifyKeyPackets: false })) {
+			console.log(packet);
+			if (packet.timestamp >= 2.4) break;
+		}
+
+		/*
+		const audioTrack = await input.getPrimaryAudioTrack();
+		const sink = new Mediabunny.EncodedPacketSink(audioTrack);
+
+		console.log(await sink.getPacket(100))
+		*/
+
+		/*
+		for await (const packet of sink.packets()) {
+			//console.log(packet);
+			//if (packet.timestamp >= 2.4) break;
+		}
+			*/
+
+		/*
+		const videoTrack = await input.getPrimaryVideoTrack();
+		const sink = new Mediabunny.VideoSampleSink(videoTrack);
+
+		for await (const sample of sink.samples(0, 2)) {
+			console.log(sample.timestamp);
+			sample.close();
+		}
+			*/
+
+		/*
 		const audioTrack = await input.getPrimaryAudioTrack();
 		const sink = new Mediabunny.EncodedPacketSink(audioTrack);
 
@@ -28,6 +61,7 @@
 
 		}
 		console.log("done") 
+		*/
 
 		/*
 		for await (const packet of sink.packets()) {

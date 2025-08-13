@@ -1,8 +1,11 @@
 <!DOCTYPE html>
 
 <script src="../dist/bundles/mediabunny.cjs"></script>
+<script src="../packages/mp3-encoder/dist/bundles/mediabunny-mp3-encoder.js"></script>
 
 <script type="module">
+	MediabunnyMp3Encoder.registerMp3Encoder();
+
 	const fileInput = document.createElement('input');
 	fileInput.type = 'file';
 	document.body.append(fileInput);
@@ -21,7 +24,7 @@
 			chunked: true,
 			chunkSize: 2**20
 		});
-		const outputFormat = new Mediabunny.Mp4OutputFormat({});
+		const outputFormat = new Mediabunny.Mp3OutputFormat({});
 
 		const button = document.createElement('button');
 		button.textContent = 'Cancel';
@@ -38,6 +41,7 @@
 				target
 			}),
 			audio: {
+				//discard: true,
 				//codec: 'opus',
 				//bitrate: 128000,
 				//numberOfChannels: 1,
@@ -69,8 +73,8 @@
 				bitrate: 320000
 			},
 			*/
-			video: {
-				frameRate: 27.123,
+			video: () => ({
+				//frameRate: 27.123,
 				//width: 320,
 				//forceTranscode: true,
 				//codec: 'av1',
@@ -88,10 +92,10 @@
 				//height: 512,
 				//width: 200,
 				//height: 100,
-			},
+			}),
 			trim: {
-				start: 0,
-				end: 20
+				//start: 0,
+				//end: 20
 			},
 		});
 		console.log(conversion);

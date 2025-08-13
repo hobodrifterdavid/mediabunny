@@ -92,22 +92,18 @@ This automatically frees up all resources used by the conversion process.
 
 ## Video options
 
-You can set the `video` property in the conversion options to configure the converter's behavior for video tracks:
+You can set the `video` property in the conversion options to configure the converter's behavior for video tracks. The options are:
 ```ts
-type ConversionOptions = {
-	// ...
-	video?: {
-		discard?: boolean;
-		width?: number;
-		height?: number;
-		fit?: 'fill' | 'contain' | 'cover';
-		rotate?: 0 | 90 | 180 | 270;
-		frameRate?: number;
-		codec?: VideoCodec;
-		bitrate?: number | Quality;
-		forceTranscode?: boolean;
-	};
-	// ...
+type ConversionVideoOptions = {
+	discard?: boolean;
+	width?: number;
+	height?: number;
+	fit?: 'fill' | 'contain' | 'cover';
+	rotate?: 0 | 90 | 180 | 270;
+	frameRate?: number;
+	codec?: VideoCodec;
+	bitrate?: number | Quality;
+	forceTranscode?: boolean;
 };
 ```
 
@@ -125,7 +121,7 @@ const conversion = await Conversion.init({
 ```
 
 ::: info
-The provided configuration will apply equally to all video tracks of the input.
+The provided configuration will apply equally to all video tracks of the input. If you want to apply a separate configuration to each video track, check [track-specific options](#track-specific-options).
 :::
 
 ### Discarding video
@@ -143,6 +139,8 @@ The `width`, `height` and `fit` properties control how the video is resized. If 
 
 If `width` or `height` is used in conjunction with `rotation`, they control the post-rotation dimensions.
 
+If you want to apply max/min constraints to a video's dimensions, check out [track-specific options](#track-specific-options).
+
 ### Adjusting frame rate
 
 The `frameRate` property can be used to set the frame rate of the output video in Hz. If not specified, the original input frame rate will be used (which may be variable).
@@ -157,19 +155,15 @@ If you want to prevent direct copying of media data and force a transcoding step
 
 ## Audio options
 
-You can set the `audio` property in the conversion options to configure the converter's behavior for audio tracks:
+You can set the `audio` property in the conversion options to configure the converter's behavior for audio tracks. The options are:
 ```ts
-type ConversionOptions = {
-	// ...
-	audio?: {
-		discard?: boolean;
-		codec?: AudioCodec;
-		bitrate?: number | Quality;
-		numberOfChannels?: number;
-		sampleRate?: number;
-		forceTranscode?: boolean;
-	};
-	// ...
+type ConversionAudioOptions = {
+	discard?: boolean;
+	codec?: AudioCodec;
+	bitrate?: number | Quality;
+	numberOfChannels?: number;
+	sampleRate?: number;
+	forceTranscode?: boolean;
 };
 ```
 
@@ -186,7 +180,7 @@ const conversion = await Conversion.init({
 ```
 
 ::: info
-The provided configuration will apply equally to all audio tracks of the input.
+The provided configuration will apply equally to all audio tracks of the input. If you want to apply a separate configuration to each audio track, check [track-specific options](#track-specific-options).
 :::
 
 ### Discarding audio
@@ -206,6 +200,46 @@ Use the `codec` property to control the codec of the output track. This should b
 Use the `bitrate` property to control the bitrate of the output audio. For example, you can use this field to compress the audio track. Accepted values are the number of bits per second or a [subjective quality](./media-sources#subjective-qualities). If this property is set, transcoding will always happen. If this property is not set but transcoding is still required, `QUALITY_HIGH` will be used as the value.
 
 If you want to prevent direct copying of media data and force a transcoding step, use `forceTranscode: true`.
+
+## Track-specific options
+
+You may want to configure your video and audio options differently depending on the specifics of the input track. Or, in case a media file has multiple video or audio tracks, you may want to discard only specific tracks or configure each track separately.
+
+For this, instead of passing an object for `video` and `audio`, you can instead pass a function:
+
+```ts
+const conversion = await Conversion.init({
+	input,
+	output,
+
+	// Function gets invoked for each video track:
+	video: (videoTrack, n) => {
+		if (n > 1) {
+			// Keep only the first video track
+			return { discard: true };
+		}
+
+		return {
+			// Shrink width to 640 only if the track is wider
+			width: Math.min(videoTrack.displayWidth, 640),
+		};
+	},
+
+	// Async functions work too:
+	audio: async (audioTrack, n) => {
+		if (audioTrack.languageCode !== 'rus') {
+			// Keep only Russian audio tracks
+			return { discard: true };
+		}
+
+		return {
+			codec: 'aac',
+		};
+	},
+});
+```
+
+For documentation about the properties of video and audio tracks, refer to [Reading track metadata](./reading-media-files#reading-track-metadata).
 
 ## Trimming
 

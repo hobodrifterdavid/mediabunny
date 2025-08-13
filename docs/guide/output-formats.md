@@ -206,11 +206,21 @@ const output = new Output({
 The following options are available:
 ```ts
 type Mp3OutputFormatOptions = {
+	xingHeader?: boolean;
 	onXingFrame?: (data: Uint8Array, position: number) => unknown;
 };
 ```
+- `xingHeader`\
+	Controls whether the Xing header, which contains additional metadata as well as an index, is written to the start of the MP3 file. Defaults to `true`.
+	::: info
+	When set to `false`, this option ensures [append-only writing](#append-only-writing).
+	:::
 - `onXingFrame`\
-	Will be called once the Xing metadata frame is finalized, which happens at the end of the writing process.
+	Will be called once the Xing metadata frame is finalized, which happens at the end of the writing process. This callback only fires if `xingHeader` isn't set to `false`.
+
+::: info
+Most browsers don't support encoding MP3. Use the official [`@mediabunny/mp3-encoder`](./extensions/mp3-encoder) package to polyfill an encoder.
+:::
 
 ## WAVE
 

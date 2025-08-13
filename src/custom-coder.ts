@@ -138,9 +138,23 @@ export const customAudioEncoders: typeof CustomAudioEncoder[] = [];
  */
 export const registerDecoder = (decoder: typeof CustomVideoDecoder | typeof CustomAudioDecoder) => {
 	if (decoder.prototype instanceof CustomVideoDecoder) {
-		customVideoDecoders.push(decoder as typeof CustomVideoDecoder);
+		const casted = decoder as typeof CustomVideoDecoder;
+
+		if (customVideoDecoders.includes(casted)) {
+			console.warn('Video decoder already registered.');
+			return;
+		}
+
+		customVideoDecoders.push(casted);
 	} else if (decoder.prototype instanceof CustomAudioDecoder) {
-		customAudioDecoders.push(decoder as typeof CustomAudioDecoder);
+		const casted = decoder as typeof CustomAudioDecoder;
+
+		if (customAudioDecoders.includes(casted)) {
+			console.warn('Audio decoder already registered.');
+			return;
+		}
+
+		customAudioDecoders.push(casted);
 	} else {
 		throw new TypeError('Decoder must be a CustomVideoDecoder or CustomAudioDecoder.');
 	}
@@ -153,9 +167,23 @@ export const registerDecoder = (decoder: typeof CustomVideoDecoder | typeof Cust
  */
 export const registerEncoder = (encoder: typeof CustomVideoEncoder | typeof CustomAudioEncoder) => {
 	if (encoder.prototype instanceof CustomVideoEncoder) {
-		customVideoEncoders.push(encoder as	typeof CustomVideoEncoder);
+		const casted = encoder as typeof CustomVideoEncoder;
+
+		if (customVideoEncoders.includes(casted)) {
+			console.warn('Video encoder already registered.');
+			return;
+		}
+
+		customVideoEncoders.push(casted);
 	} else if (encoder.prototype instanceof CustomAudioEncoder) {
-		customAudioEncoders.push(encoder as typeof CustomAudioEncoder);
+		const casted = encoder as typeof CustomAudioEncoder;
+
+		if (customAudioEncoders.includes(casted)) {
+			console.warn('Audio encoder already registered.');
+			return;
+		}
+
+		customAudioEncoders.push(casted);
 	} else {
 		throw new TypeError('Encoder must be a CustomVideoEncoder or CustomAudioEncoder.');
 	}

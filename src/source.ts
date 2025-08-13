@@ -164,11 +164,13 @@ export type UrlSourceOptions = {
  */
 export class UrlSource extends Source {
 	/** @internal */
-	private _url: string | URL;
+	private _url: URL;
 	/** @internal */
 	private _options: UrlSourceOptions;
 	/** @internal */
 	private _fullData: ArrayBuffer | null = null;
+	/** @internal */
+	private _nextUrlVersion: number | null = null;
 
 	constructor(
 		url: string | URL,
@@ -189,7 +191,7 @@ export class UrlSource extends Source {
 
 		super();
 
-		this._url = url;
+		this._url = url instanceof URL ? url : new URL(url);
 		this._options = options;
 	}
 
@@ -201,6 +203,11 @@ export class UrlSource extends Source {
 
 		if (range) {
 			headers['Range'] = `bytes=${range.start}-${range.end - 1}`;
+		}
+
+		if (this._nextUrlVersion !== null) {
+			this._url.searchParams.set('mediabunny_version', this._nextUrlVersion.toString());
+			this._nextUrlVersion++;
 		}
 
 		const response = await retriedFetch(
@@ -217,6 +224,19 @@ export class UrlSource extends Source {
 		}
 
 		const buffer = await response.arrayBuffer();
+
+		if (
+			response.status === 206
+			&& range
+			&& buffer.byteLength !== range.end - range.start
+			&& this._nextUrlVersion === null
+		) {
+			// We did a range request but it resolved with the wrong range; in Chromium, this can be due to a caching
+			// bug (https://issues.chromium.org/issues/436025873). Let's circumvent the cache for the rest of the
+			// session by appending a version to the URL.
+			this._nextUrlVersion = 1;
+			return this._makeRequest(range);
+		}
 
 		if (response.status === 200) {
 			// The server didn't return 206 Partial Content, so it's not a range response

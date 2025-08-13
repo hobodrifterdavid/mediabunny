@@ -132,6 +132,9 @@ const initMediaPlayer = async (file: File) => {
 			warningElement.textContent = problemMessage;
 		}
 
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+		const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+
 		// We must create the audio context with the matching sample rate for correct acoustic results
 		// (especially for low-sample rate files)
 		audioContext = new AudioContext({ sampleRate: audioTrack?.sampleRate });
@@ -166,7 +169,11 @@ const initMediaPlayer = async (file: File) => {
 		fileLoaded = true;
 
 		await startVideoIterator();
-		await play();
+
+		if (audioContext.state === 'running') {
+			// Start playback automatically if the audio context permits
+			await play();
+		}
 
 		playerContainer.style.display = '';
 
@@ -330,6 +337,10 @@ const getPlaybackTime = () => {
 };
 
 const play = async () => {
+	if (audioContext!.state === 'suspended') {
+		await audioContext!.resume();
+	}
+
 	if (getPlaybackTime() === totalDuration) {
 		// If we're at the end, let's snap back to the start
 		playbackTimeAtStart = 0;

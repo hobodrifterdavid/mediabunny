@@ -84,7 +84,7 @@ export {
 	getFirstEncodableSubtitleCodec,
 } from './codec';
 export { Target, BufferTarget, StreamTarget, StreamTargetChunk, StreamTargetOptions } from './target';
-export { Rotation, AnyIterable, SetRequired } from './misc';
+export { Rotation, AnyIterable, SetRequired, MaybePromise } from './misc';
 export {
 	Source,
 	BufferSource,
@@ -139,7 +139,7 @@ export {
 	SubtitlePacketSink,
 	PacketRetrievalOptions,
 } from './media-sink';
-export { ConversionOptions, Conversion } from './conversion';
+export { Conversion, ConversionOptions, ConversionVideoOptions, ConversionAudioOptions } from './conversion';
 export {
 	CustomVideoDecoder,
 	CustomAudioDecoder,

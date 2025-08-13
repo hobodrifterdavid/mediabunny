@@ -52,9 +52,14 @@ jobs:
       - name: Upload build artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.event.release.tag_name }} dist/bundles/mediabunny.cjs dist/bundles/mediabunny.min.cjs dist/bundles/mediabunny.mjs dist/bundles/mediabunny.min.mjs dist/mediabunny.d.ts
+        run: gh release upload ${{ github.event.release.tag_name }} dist/bundles/mediabunny.cjs dist/bundles/mediabunny.min.cjs dist/bundles/mediabunny.mjs dist/bundles/mediabunny.min.mjs dist/mediabunny.d.ts packages/mp3-encoder/dist/bundles/mediabunny-mp3-encoder.js packages/mp3-encoder/dist/bundles/mediabunny-mp3-encoder.min.js packages/mp3-encoder/dist/bundles/mediabunny-mp3-encoder.mjs packages/mp3-encoder/dist/bundles/mediabunny-mp3-encoder.min.mjs packages/mp3-encoder/dist/mediabunny-mp3-encoder.d.ts
 
-      - name: Create Publish to npm
-        run: npm publish --provenance
+      - name: Publish Mediabunny to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish workspace packages to npm
+        run: npm publish --provenance --access public --workspaces 
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

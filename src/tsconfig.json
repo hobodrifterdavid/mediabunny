@@ -2,12 +2,15 @@
 	"extends": "../tsconfig.json",
 	"compilerOptions": {
 		"outDir": "../dist/modules",
+		"rootDir": "..",
 		"declaration": true,
 		"declarationMap": true,
 		"stripInternal": true,
-		"noEmit": false
+		"noEmit": false,
+		"composite": true
 	},
 	"include": [
-		"**/*"
+		"**/*",
+		"../shared/**/*"
 	]
 }

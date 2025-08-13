@@ -35,10 +35,131 @@ import {
 	VideoSampleSource,
 	AudioSampleSource,
 } from './media-source';
-import { assert, clamp, normalizeRotation, promiseWithResolvers, Rotation } from './misc';
+import { assert, clamp, MaybePromise, normalizeRotation, promiseWithResolvers, Rotation } from './misc';
 import { Output, TrackType } from './output';
 import { EncodedPacket } from './packet';
 import { AudioSample, VideoSample } from './sample';
+
+/**
+ * Video-specific options.
+ * @public
+ */
+export type ConversionVideoOptions = {
+	/** If true, all video tracks will be discarded and will not be present in the output. */
+	discard?: boolean;
+	/**
+	 * The desired width of the output video in pixels, defaulting to the video's natural display width. If height
+	 * is not set, it will be deduced automatically based on aspect ratio.
+	 */
+	width?: number;
+	/**
+	 * The desired height of the output video in pixels, defaulting to the video's natural display height. If width
+	 * is not set, it will be deduced automatically based on aspect ratio.
+	 */
+	height?: number;
+	/**
+	 * The fitting algorithm in case both width and height are set.
+	 *
+	 * - 'fill' will stretch the image to fill the entire box, potentially altering aspect ratio.
+	 * - 'contain' will contain the entire image within the box while preserving aspect ratio. This may lead to
+	 * letterboxing.
+	 * - 'cover' will scale the image until the entire box is filled, while preserving aspect ratio.
+	 */
+	fit?: 'fill' | 'contain' | 'cover';
+	/**
+	 * The angle in degrees to rotate the input video by, clockwise. Rotation is applied before resizing. This
+	 * rotation is _in addition to_ the natural rotation of the input video as specified in input file's metadata.
+	 */
+	rotate?: Rotation;
+	/**
+	 * The desired frame rate of the output video, in hertz. If not specified, the original input frame rate will
+	 * be used (which may be variable).
+	 */
+	frameRate?: number;
+	/** The desired output video codec. */
+	codec?: VideoCodec;
+	/** The desired bitrate of the output video. */
+	bitrate?: VideoEncodingConfig['bitrate'];
+	/** When true, video will always be re-encoded instead of directly copying over the encoded samples. */
+	forceTranscode?: boolean;
+};
+
+/**
+ * Audio-specific options.
+ * @public
+ */
+export type ConversionAudioOptions = {
+	/** If true, all audio tracks will be discarded and will not be present in the output. */
+	discard?: boolean;
+	/** The desired channel count of the output audio. */
+	numberOfChannels?: number;
+	/** The desired sample rate of the output audio, in hertz. */
+	sampleRate?: number;
+	/** The desired output audio codec. */
+	codec?: AudioCodec;
+	/** The desired bitrate of the output audio. */
+	bitrate?: AudioEncodingConfig['bitrate'];
+	/** When true, audio will always be re-encoded instead of directly copying over the encoded samples. */
+	forceTranscode?: boolean;
+};
+
+const validateVideoOptions = (videoOptions: ConversionVideoOptions | undefined) => {
+	if (videoOptions !== undefined && (!videoOptions || typeof videoOptions !== 'object')) {
+		throw new TypeError('options.video, when provided, must be an object.');
+	}
+	if (videoOptions?.discard !== undefined && typeof videoOptions.discard !== 'boolean') {
+		throw new TypeError('options.video.discard, when provided, must be a boolean.');
+	}
+	if (videoOptions?.forceTranscode !== undefined && typeof videoOptions.forceTranscode !== 'boolean') {
+		throw new TypeError('options.video.forceTranscode, when provided, must be a boolean.');
+	}
+	if (videoOptions?.codec !== undefined && !VIDEO_CODECS.includes(videoOptions.codec)) {
+		throw new TypeError(
+			`options.video.codec, when provided, must be one of: ${VIDEO_CODECS.join(', ')}.`,
+		);
+	}
+	if (
+		videoOptions?.bitrate !== undefined
+		&& !(videoOptions.bitrate instanceof Quality)
+		&& (!Number.isInteger(videoOptions.bitrate) || videoOptions.bitrate <= 0)
+	) {
+		throw new TypeError('options.video.bitrate, when provided, must be a positive integer or a quality.');
+	}
+	if (
+		videoOptions?.width !== undefined
+		&& (!Number.isInteger(videoOptions.width) || videoOptions.width <= 0)
+	) {
+		throw new TypeError('options.video.width, when provided, must be a positive integer.');
+	}
+	if (
+		videoOptions?.height !== undefined
+		&& (!Number.isInteger(videoOptions.height) || videoOptions.height <= 0)
+	) {
+		throw new TypeError('options.video.height, when provided, must be a positive integer.');
+	}
+	if (videoOptions?.fit !== undefined && !['fill', 'contain', 'cover'].includes(videoOptions.fit)) {
+		throw new TypeError('options.video.fit, when provided, must be one of "fill", "contain", or "cover".');
+	}
+	if (
+		videoOptions?.width !== undefined
+		&& videoOptions.height !== undefined
+		&& videoOptions.fit === undefined
+	) {
+		throw new TypeError(
+			'When both options.video.width and options.video.height are provided, options.video.fit must also be'
+			+ ' provided.',
+		);
+	}
+	if (videoOptions?.rotate !== undefined && ![0, 90, 180, 270].includes(videoOptions.rotate)) {
+		throw new TypeError('options.video.rotate, when provided, must be 0, 90, 180 or 270.');
+	}
+	if (
+		videoOptions?.frameRate !== undefined
+		&& (!Number.isFinite(videoOptions.frameRate) || videoOptions.frameRate <= 0)
+	) {
+		throw new TypeError('options.video.frameRate, when provided, must be a finite positive number.');
+	}
+};
 
 /**
  * The options for media file conversion.
@@ -50,62 +171,23 @@ export type ConversionOptions = {
 	/** The output file. */
 	output: Output;
 
-	/** Video-specific options. */
-	video?: {
-		/** If true, all video tracks will be discarded and will not be present in the output. */
-		discard?: boolean;
-		/**
-		 * The desired width of the output video in pixels, defaulting to the video's natural display width. If height
-		 * is not set, it will be deduced automatically based on aspect ratio.
-		 */
-		width?: number;
-		/**
-		 * The desired height of the output video in pixels, defaulting to the video's natural display height. If width
-		 * is not set, it will be deduced automatically based on aspect ratio.
-		 */
-		height?: number;
-		/**
-		 * The fitting algorithm in case both width and height are set.
-		 *
-		 * - 'fill' will stretch the image to fill the entire box, potentially altering aspect ratio.
-		 * - 'contain' will contain the entire image within the box while preserving aspect ratio. This may lead to
-		 * letterboxing.
-		 * - 'cover' will scale the image until the entire box is filled, while preserving aspect ratio.
-		 */
-		fit?: 'fill' | 'contain' | 'cover';
-		/**
-		 * The angle in degrees to rotate the input video by, clockwise. Rotation is applied before resizing. This
-		 * rotation is _in addition to_ the natural rotation of the input video as specified in input file's metadata.
-		 */
-		rotate?: Rotation;
-		/**
-		 * The desired frame rate of the output video, in hertz. If not specified, the original input frame rate will
-		 * be used (which may be variable).
-		 */
-		frameRate?: number;
-		/** The desired output video codec. */
-		codec?: VideoCodec;
-		/** The desired bitrate of the output video. */
-		bitrate?: VideoEncodingConfig['bitrate'];
-		/** When true, video will always be re-encoded instead of directly copying over the encoded samples. */
-		forceTranscode?: boolean;
-	};
+	/**
+	 * Video-specific options. When passing an object, the same options are applied to all video tracks. When passing a
+	 * function, it will be invoked for each video track and is expected to return or resolve to the options
+	 * for that specific track. The function is passed an instance of `InputVideoTrack` as well as a number `n`, which
+	 * is the 1-based index of the track in the list of all video tracks.
+	 */
+	video?: ConversionVideoOptions
+		| ((track: InputVideoTrack, n: number) => MaybePromise<ConversionVideoOptions | undefined>);
 
-	/** Audio-specific options. */
-	audio?: {
-		/** If true, all audio tracks will be discarded and will not be present in the output. */
-		discard?: boolean;
-		/** The desired channel count of the output audio. */
-		numberOfChannels?: number;
-		/** The desired sample rate of the output audio, in hertz. */
-		sampleRate?: number;
-		/** The desired output audio codec. */
-		codec?: AudioCodec;
-		/** The desired bitrate of the output audio. */
-		bitrate?: AudioEncodingConfig['bitrate'];
-		/** When true, audio will always be re-encoded instead of directly copying over the encoded samples. */
-		forceTranscode?: boolean;
-	};
+	/**
+	 * Audio-specific options. When passing an object, the same options are applied to all audio tracks. When passing a
+	 * function, it will be invoked for each audio track and is expected to return or resolve to the options
+	 * for that specific track. The function is passed an instance of `InputAudioTrack` as well as a number `n`, which
+	 * is the 1-based index of the track in the list of all audio tracks.
+	 */
+	audio?: ConversionAudioOptions
+		| ((track: InputAudioTrack, n: number) => MaybePromise<ConversionAudioOptions | undefined>);
 
 	/** Options to trim the input file. */
 	trim?: {
@@ -122,6 +204,42 @@ export type ConversionOptions = {
 		/** If true, only audio tracks will be included. */
 		audioOnly?: boolean;
 	};
+};
+
+const validateAudioOptions = (audioOptions: ConversionAudioOptions | undefined) => {
+	if (audioOptions !== undefined && (!audioOptions || typeof audioOptions !== 'object')) {
+		throw new TypeError('options.audio, when provided, must be an object.');
+	}
+	if (audioOptions?.discard !== undefined && typeof audioOptions.discard !== 'boolean') {
+		throw new TypeError('options.audio.discard, when provided, must be a boolean.');
+	}
+	if (audioOptions?.forceTranscode !== undefined && typeof audioOptions.forceTranscode !== 'boolean') {
+		throw new TypeError('options.audio.forceTranscode, when provided, must be a boolean.');
+	}
+	if (audioOptions?.codec !== undefined && !AUDIO_CODECS.includes(audioOptions.codec)) {
+		throw new TypeError(
+			`options.audio.codec, when provided, must be one of: ${AUDIO_CODECS.join(', ')}.`,
+		);
+	}
+	if (
+		audioOptions?.bitrate !== undefined
+		&& !(audioOptions.bitrate instanceof Quality)
+		&& (!Number.isInteger(audioOptions.bitrate) || audioOptions.bitrate <= 0)
+	) {
+		throw new TypeError('options.audio.bitrate, when provided, must be a positive integer or a quality.');
+	}
+	if (
+		audioOptions?.numberOfChannels !== undefined
+		&& (!Number.isInteger(audioOptions.numberOfChannels) || audioOptions.numberOfChannels <= 0)
+	) {
+		throw new TypeError('options.audio.numberOfChannels, when provided, must be a positive integer.');
+	}
+	if (
+		audioOptions?.sampleRate !== undefined
+		&& (!Number.isInteger(audioOptions.sampleRate) || audioOptions.sampleRate <= 0)
+	) {
+		throw new TypeError('options.audio.sampleRate, when provided, must be a positive integer.');
+	}
 };
 
 const FALLBACK_NUMBER_OF_CHANNELS = 2;
@@ -226,94 +344,19 @@ export class Conversion {
 		if (options.output._tracks.length > 0 || options.output.state !== 'pending') {
 			throw new TypeError('options.output must be fresh: no tracks added and not started.');
 		}
-		if (options.video !== undefined && (!options.video || typeof options.video !== 'object')) {
-			throw new TypeError('options.video, when provided, must be an object.');
+
+		if (typeof options.video !== 'function') {
+			validateVideoOptions(options.video);
+		} else {
+			// We'll validate the return value later
 		}
-		if (options.video?.discard !== undefined && typeof options.video.discard !== 'boolean') {
-			throw new TypeError('options.video.discard, when provided, must be a boolean.');
+
+		if (typeof options.audio !== 'function') {
+			validateAudioOptions(options.audio);
+		} else {
+			// We'll validate the return value later
 		}
-		if (options.video?.forceTranscode !== undefined && typeof options.video.forceTranscode !== 'boolean') {
-			throw new TypeError('options.video.forceTranscode, when provided, must be a boolean.');
-		}
-		if (options.video?.codec !== undefined && !VIDEO_CODECS.includes(options.video.codec)) {
-			throw new TypeError(
-				`options.video.codec, when provided, must be one of: ${VIDEO_CODECS.join(', ')}.`,
-			);
-		}
-		if (
-			options.video?.bitrate !== undefined
-			&& !(options.video.bitrate instanceof Quality)
-			&& (!Number.isInteger(options.video.bitrate) || options.video.bitrate <= 0)
-		) {
-			throw new TypeError('options.video.bitrate, when provided, must be a positive integer or a quality.');
-		}
-		if (
-			options.video?.width !== undefined
-			&& (!Number.isInteger(options.video.width) || options.video.width <= 0)
-		) {
-			throw new TypeError('options.video.width, when provided, must be a positive integer.');
-		}
-		if (
-			options.video?.height !== undefined
-			&& (!Number.isInteger(options.video.height) || options.video.height <= 0)
-		) {
-			throw new TypeError('options.video.height, when provided, must be a positive integer.');
-		}
-		if (options.video?.fit !== undefined && !['fill', 'contain', 'cover'].includes(options.video.fit)) {
-			throw new TypeError('options.video.fit, when provided, must be one of "fill", "contain", or "cover".');
-		}
-		if (
-			options.video?.width !== undefined
-			&& options.video.height !== undefined
-			&& options.video.fit === undefined
-		) {
-			throw new TypeError(
-				'When both options.video.width and options.video.height are provided, options.video.fit must also be'
-				+ ' provided.',
-			);
-		}
-		if (options.video?.rotate !== undefined && ![0, 90, 180, 270].includes(options.video.rotate)) {
-			throw new TypeError('options.video.rotate, when provided, must be 0, 90, 180 or 270.');
-		}
-		if (
-			options.video?.frameRate !== undefined
-			&& (!Number.isFinite(options.video.frameRate) || options.video.frameRate <= 0)
-		) {
-			throw new TypeError('options.video.frameRate, when provided, must be a finite positive number.');
-		}
-		if (options.audio !== undefined && (!options.audio || typeof options.audio !== 'object')) {
-			throw new TypeError('options.audio, when provided, must be an object.');
-		}
-		if (options.audio?.discard !== undefined && typeof options.audio.discard !== 'boolean') {
-			throw new TypeError('options.audio.discard, when provided, must be a boolean.');
-		}
-		if (options.audio?.forceTranscode !== undefined && typeof options.audio.forceTranscode !== 'boolean') {
-			throw new TypeError('options.audio.forceTranscode, when provided, must be a boolean.');
-		}
-		if (options.audio?.codec !== undefined && !AUDIO_CODECS.includes(options.audio.codec)) {
-			throw new TypeError(
-				`options.audio.codec, when provided, must be one of: ${AUDIO_CODECS.join(', ')}.`,
-			);
-		}
-		if (
-			options.audio?.bitrate !== undefined
-			&& !(options.audio.bitrate instanceof Quality)
-			&& (!Number.isInteger(options.audio.bitrate) || options.audio.bitrate <= 0)
-		) {
-			throw new TypeError('options.audio.bitrate, when provided, must be a positive integer or a quality.');
-		}
-		if (
-			options.audio?.numberOfChannels !== undefined
-			&& (!Number.isInteger(options.audio.numberOfChannels) || options.audio.numberOfChannels <= 0)
-		) {
-			throw new TypeError('options.audio.numberOfChannels, when provided, must be a positive integer.');
-		}
-		if (
-			options.audio?.sampleRate !== undefined
-			&& (!Number.isInteger(options.audio.sampleRate) || options.audio.sampleRate <= 0)
-		) {
-			throw new TypeError('options.audio.sampleRate, when provided, must be a positive integer.');
-		}
+
 		if (options.trim !== undefined && (!options.trim || typeof options.trim !== 'object')) {
 			throw new TypeError('options.trim, when provided, must be an object.');
 		}
@@ -374,16 +417,36 @@ export class Conversion {
 			}
 		}
 
+		let nVideo = 1;
+		let nAudio = 1;
+
 		for (const track of inputTracks) {
-			if (track.isVideoTrack() && this._options.video?.discard) {
-				this.discardedTracks.push({
-					track,
-					reason: 'discarded_by_user',
-				});
-				continue;
+			let trackOptions: ConversionVideoOptions | ConversionAudioOptions | undefined = undefined;
+			if (track.isVideoTrack()) {
+				if (this._options.video) {
+					if (typeof this._options.video === 'function') {
+						trackOptions = await this._options.video(track, nVideo);
+						validateVideoOptions(trackOptions);
+						nVideo++;
+					} else {
+						trackOptions = this._options.video;
+					}
+				}
+			} else if (track.isAudioTrack()) {
+				if (this._options.audio) {
+					if (typeof this._options.audio === 'function') {
+						trackOptions = await this._options.audio(track, nAudio);
+						validateAudioOptions(trackOptions);
+						nAudio++;
+					} else {
+						trackOptions = this._options.audio;
+					}
+				}
+			} else {
+				assert(false);
 			}
 
-			if (track.isAudioTrack() && this._options.audio?.discard) {
+			if (trackOptions?.discard) {
 				this.discardedTracks.push({
 					track,
 					reason: 'discarded_by_user',
@@ -408,9 +471,9 @@ export class Conversion {
 			}
 
 			if (track.isVideoTrack()) {
-				await this._processVideoTrack(track);
+				await this._processVideoTrack(track, (trackOptions ?? {}) as ConversionVideoOptions);
 			} else if (track.isAudioTrack()) {
-				await this._processAudioTrack(track);
+				await this._processAudioTrack(track, (trackOptions ?? {}) as ConversionAudioOptions);
 			}
 		}
 
@@ -446,7 +509,7 @@ export class Conversion {
 		} catch (error) {
 			if (!this._canceled) {
 				// Make sure to cancel to stop other encoding processes and clean up resources
-				await this.cancel();
+				void this.cancel();
 			}
 
 			throw error;
@@ -479,7 +542,7 @@ export class Conversion {
 	}
 
 	/** @internal */
-	async _processVideoTrack(track: InputVideoTrack) {
+	async _processVideoTrack(track: InputVideoTrack, trackOptions: ConversionVideoOptions) {
 		const sourceCodec = track.codec;
 		if (!sourceCodec) {
 			this.discardedTracks.push({
@@ -491,7 +554,7 @@ export class Conversion {
 
 		let videoSource: VideoSource;
 
-		const totalRotation = normalizeRotation(track.rotation + (this._options.video?.rotate ?? 0));
+		const totalRotation = normalizeRotation(track.rotation + (trackOptions.rotate ?? 0));
 		const outputSupportsRotation = this.output.format.supportsVideoRotationMetadata;
 
 		const [originalWidth, originalHeight] = totalRotation % 180 === 0
@@ -505,22 +568,22 @@ export class Conversion {
 		// A lot of video encoders require that the dimensions be multiples of 2
 		const ceilToMultipleOfTwo = (value: number) => Math.ceil(value / 2) * 2;
 
-		if (this._options.video?.width !== undefined && this._options.video.height === undefined) {
-			width = ceilToMultipleOfTwo(this._options.video.width);
+		if (trackOptions.width !== undefined && trackOptions.height === undefined) {
+			width = ceilToMultipleOfTwo(trackOptions.width);
 			height = ceilToMultipleOfTwo(Math.round(width / aspectRatio));
-		} else if (this._options.video?.width === undefined && this._options.video?.height !== undefined) {
-			height = ceilToMultipleOfTwo(this._options.video.height);
+		} else if (trackOptions.width === undefined && trackOptions.height !== undefined) {
+			height = ceilToMultipleOfTwo(trackOptions.height);
 			width = ceilToMultipleOfTwo(Math.round(height * aspectRatio));
-		} else if (this._options.video?.width !== undefined && this._options.video.height !== undefined) {
-			width = ceilToMultipleOfTwo(this._options.video.width);
-			height = ceilToMultipleOfTwo(this._options.video.height);
+		} else if (trackOptions.width !== undefined && trackOptions.height !== undefined) {
+			width = ceilToMultipleOfTwo(trackOptions.width);
+			height = ceilToMultipleOfTwo(trackOptions.height);
 		}
 
 		const firstTimestamp = await track.getFirstTimestamp();
-		const needsTranscode = !!this._options.video?.forceTranscode
+		const needsTranscode = !!trackOptions.forceTranscode
 			|| this._startTimestamp > 0
 			|| firstTimestamp < 0
-			|| !!this._options.video?.frameRate;
+			|| !!trackOptions.frameRate;
 		const needsRerender = width !== originalWidth
 			|| height !== originalHeight
 			|| (totalRotation !== 0 && !outputSupportsRotation);
@@ -528,10 +591,10 @@ export class Conversion {
 		let videoCodecs = this.output.format.getSupportedVideoCodecs();
 		if (
 			!needsTranscode
-			&& !this._options.video?.bitrate
+			&& !trackOptions.bitrate
 			&& !needsRerender
 			&& videoCodecs.includes(sourceCodec)
-			&& (!this._options.video?.codec || this._options.video?.codec === sourceCodec)
+			&& (!trackOptions.codec || trackOptions.codec === sourceCodec)
 		) {
 			// Fast path, we can simply copy over the encoded packets
 
@@ -576,11 +639,11 @@ export class Conversion {
 				return;
 			}
 
-			if (this._options.video?.codec) {
-				videoCodecs = videoCodecs.filter(codec => codec === this._options.video?.codec);
+			if (trackOptions.codec) {
+				videoCodecs = videoCodecs.filter(codec => codec === trackOptions.codec);
 			}
 
-			const bitrate = this._options.video?.bitrate ?? QUALITY_HIGH;
+			const bitrate = trackOptions.bitrate ?? QUALITY_HIGH;
 
 			const encodableCodec = await getFirstEncodableVideoCodec(videoCodecs, { width, height, bitrate });
 			if (!encodableCodec) {
@@ -607,12 +670,12 @@ export class Conversion {
 					const sink = new CanvasSink(track, {
 						width,
 						height,
-						fit: this._options.video?.fit ?? 'fill',
+						fit: trackOptions.fit ?? 'fill',
 						rotation: totalRotation, // Bake the rotation into the output
 						poolSize: 1,
 					});
 					const iterator = sink.canvases(this._startTimestamp, this._endTimestamp);
-					const frameRate = this._options.video?.frameRate;
+					const frameRate = trackOptions.frameRate;
 
 					let lastCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 					let lastCanvasTimestamp: number | null = null;
@@ -697,7 +760,7 @@ export class Conversion {
 					await this._started;
 
 					const sink = new VideoSampleSink(track);
-					const frameRate = this._options.video?.frameRate;
+					const frameRate = trackOptions.frameRate;
 
 					let lastSample: VideoSample | null = null;
 					let lastSampleTimestamp: number | null = null;
@@ -780,7 +843,7 @@ export class Conversion {
 		}
 
 		this.output.addVideoTrack(videoSource, {
-			frameRate: this._options.video?.frameRate,
+			frameRate: trackOptions.frameRate,
 			languageCode: track.languageCode,
 			rotation: needsRerender ? 0 : totalRotation, // Rerendering will bake the rotation into the output
 		});
@@ -791,7 +854,7 @@ export class Conversion {
 	}
 
 	/** @internal */
-	async _processAudioTrack(track: InputAudioTrack) {
+	async _processAudioTrack(track: InputAudioTrack, trackOptions: ConversionAudioOptions) {
 		const sourceCodec = track.codec;
 		if (!sourceCodec) {
 			this.discardedTracks.push({
@@ -808,8 +871,8 @@ export class Conversion {
 
 		const firstTimestamp = await track.getFirstTimestamp();
 
-		let numberOfChannels = this._options.audio?.numberOfChannels ?? originalNumberOfChannels;
-		let sampleRate = this._options.audio?.sampleRate ?? originalSampleRate;
+		let numberOfChannels = trackOptions.numberOfChannels ?? originalNumberOfChannels;
+		let sampleRate = trackOptions.sampleRate ?? originalSampleRate;
 		let needsResample = numberOfChannels !== originalNumberOfChannels
 			|| sampleRate !== originalSampleRate
 			|| this._startTimestamp > 0;
@@ -817,11 +880,11 @@ export class Conversion {
 
 		let audioCodecs = this.output.format.getSupportedAudioCodecs();
 		if (
-			!this._options.audio?.forceTranscode
-			&& !this._options.audio?.bitrate
+			!trackOptions.forceTranscode
+			&& !trackOptions.bitrate
 			&& !needsResample
 			&& audioCodecs.includes(sourceCodec)
-			&& (!this._options.audio?.codec || this._options.audio.codec === sourceCodec)
+			&& (!trackOptions.codec || trackOptions.codec === sourceCodec)
 		) {
 			// Fast path, we can simply copy over the encoded packets
 
@@ -883,11 +946,11 @@ export class Conversion {
 
 			let codecOfChoice: AudioCodec | null = null;
 
-			if (this._options.audio?.codec) {
-				audioCodecs = audioCodecs.filter(codec => codec === this._options.audio!.codec);
+			if (trackOptions.codec) {
+				audioCodecs = audioCodecs.filter(codec => codec === trackOptions.codec);
 			}
 
-			const bitrate = this._options.audio?.bitrate ?? QUALITY_HIGH;
+			const bitrate = trackOptions.bitrate ?? QUALITY_HIGH;
 
 			const encodableCodecs = await getEncodableAudioCodecs(audioCodecs, {
 				numberOfChannels,

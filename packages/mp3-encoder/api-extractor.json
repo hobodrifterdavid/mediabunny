@@ -10,7 +10,8 @@
     "enabled": false
   },
   "dtsRollup": {
-    "enabled": true
+    "enabled": true,
+		"untrimmedFilePath": "dist/mediabunny-mp3-encoder.d.ts"
   },
   "tsdocMetadata": {
 		"enabled": false

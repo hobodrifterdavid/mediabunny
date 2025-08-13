@@ -80,7 +80,8 @@ export abstract class MediaSource {
 	/** @internal */
 	async _start() {}
 	/** @internal */
-	async _flushAndClose() {}
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	async _flushAndClose(forceClose: boolean) {}
 
 	/**
 	 * Closes this source. This prevents future samples from being added and signals to the output file that no further
@@ -103,7 +104,7 @@ export abstract class MediaSource {
 		}
 
 		this._closingPromise = (async () => {
-			await this._flushAndClose();
+			await this._flushAndClose(false);
 
 			this._closed = true;
 
@@ -116,12 +117,12 @@ export abstract class MediaSource {
 	}
 
 	/** @internal */
-	async _flushOrWaitForClose() {
+	async _flushOrWaitForOngoingClose(forceClose: boolean) {
 		if (this._closingPromise) {
 			// Since closing also flushes, we don't want to do it twice
 			return this._closingPromise;
 		} else {
-			return this._flushAndClose();
+			return this._flushAndClose(forceClose);
 		}
 	}
 }
@@ -157,7 +158,8 @@ export class EncodedVideoPacketSource extends VideoSource {
 	}
 
 	/**
-	 * Adds an encoded packet to the output video track.
+	 * Adds an encoded packet to the output video track. Packets must be added in *decode order*, while a packet's
+	 * timestamp must be its *presentation timestamp*. B-frames are handled automatically.
 	 *
 	 * @param meta - Additional metadata from the encoder. You should pass this for the first call, including a valid
 	 * decoder config.
@@ -321,17 +323,17 @@ class VideoEncoderWrapper {
 
 			if (this.customEncoder) {
 				this.customEncoderQueueSize++;
-				const promise = this.customEncoderCallSerializer
-					.call(() => this.customEncoder!.encode(videoSample, finalEncodeOptions))
-					.then(() => {
-						this.customEncoderQueueSize--;
 
-						if (shouldClose) {
-							videoSample.close();
-						}
-					})
-					.catch((error: Error) => {
-						this.encoderError ??= error;
+				// We clone the sample so it cannot be closed on us from the outside before it reaches the encoder
+				const clonedSample = videoSample.clone();
+
+				const promise = this.customEncoderCallSerializer
+					.call(() => this.customEncoder!.encode(clonedSample, finalEncodeOptions))
+					.then(() => this.customEncoderQueueSize--)
+					.catch((error: Error) => this.encoderError ??= error)
+					.finally(() => {
+						clonedSample.close();
+						// `videoSample` gets closed in the finally block at the end of the method
 					});
 
 				if (this.customEncoderQueueSize >= 4) {
@@ -438,6 +440,7 @@ class VideoEncoderWrapper {
 						void this.muxer!.addEncodedVideoPacket(this.source._connectedTrack!, packet, meta);
 					},
 					error: (error) => {
+						error.stack = new Error().stack; // Provide a more useful stack trace
 						this.encoderError ??= error;
 					},
 				});
@@ -451,14 +454,20 @@ class VideoEncoderWrapper {
 		})();
 	}
 
-	async flushAndClose() {
+	async flushAndClose(forceClose: boolean) {
 		this.checkForEncoderError();
 
 		if (this.customEncoder) {
-			void this.customEncoderCallSerializer.call(() => this.customEncoder!.flush());
+			if (!forceClose) {
+				void this.customEncoderCallSerializer.call(() => this.customEncoder!.flush());
+			}
+
 			await this.customEncoderCallSerializer.call(() => this.customEncoder!.close());
 		} else if (this.encoder) {
-			await this.encoder.flush();
+			if (!forceClose) {
+				await this.encoder.flush();
+			}
+
 			this.encoder.close();
 		}
 
@@ -475,7 +484,6 @@ class VideoEncoderWrapper {
 
 	checkForEncoderError() {
 		if (this.encoderError) {
-			this.encoderError.stack = new Error().stack; // Provide a more useful stack trace
 			throw this.encoderError;
 		}
 	}
@@ -512,8 +520,8 @@ export class VideoSampleSource extends VideoSource {
 	}
 
 	/** @internal */
-	override _flushAndClose() {
-		return this._encoder.flushAndClose();
+	override _flushAndClose(forceClose: boolean) {
+		return this._encoder.flushAndClose(forceClose);
 	}
 }
 
@@ -564,8 +572,8 @@ export class CanvasSource extends VideoSource {
 	}
 
 	/** @internal */
-	override _flushAndClose() {
-		return this._encoder.flushAndClose();
+	override _flushAndClose(forceClose: boolean) {
+		return this._encoder.flushAndClose(forceClose);
 	}
 }
 
@@ -714,7 +722,7 @@ export class MediaStreamVideoTrackSource extends VideoSource {
 	}
 
 	/** @internal */
-	override async _flushAndClose() {
+	override async _flushAndClose(forceClose: boolean) {
 		if (this._abortController) {
 			this._abortController.abort();
 			this._abortController = null;
@@ -746,7 +754,7 @@ export class MediaStreamVideoTrackSource extends VideoSource {
 			});
 		}
 
-		await this._encoder.flushAndClose();
+		await this._encoder.flushAndClose(forceClose);
 	}
 }
 
@@ -781,7 +789,7 @@ export class EncodedAudioPacketSource extends AudioSource {
 	}
 
 	/**
-	 * Adds an encoded packet to the output audio track.
+	 * Adds an encoded packet to the output audio track. Packets must be added in *decode order*.
 	 *
 	 * @param meta - Additional metadata from the encoder. You should pass this for the first call, including a valid
 	 * decoder config.
@@ -931,17 +939,17 @@ class AudioEncoderWrapper {
 
 			if (this.customEncoder) {
 				this.customEncoderQueueSize++;
-				const promise = this.customEncoderCallSerializer
-					.call(() => this.customEncoder!.encode(audioSample))
-					.then(() => {
-						this.customEncoderQueueSize--;
 
-						if (shouldClose) {
-							audioSample.close();
-						}
-					})
-					.catch((error: Error) => {
-						this.encoderError ??= error;
+				// We clone the sample so it cannot be closed on us from the outside before it reaches the encoder
+				const clonedSample = audioSample.clone();
+
+				const promise = this.customEncoderCallSerializer
+					.call(() => this.customEncoder!.encode(clonedSample))
+					.then(() => this.customEncoderQueueSize--)
+					.catch((error: Error) => this.encoderError ??= error)
+					.finally(() => {
+						clonedSample.close();
+						// `audioSample` gets closed in the finally block at the end of the method
 					});
 
 				if (this.customEncoderQueueSize >= 4) {
@@ -1120,6 +1128,7 @@ class AudioEncoderWrapper {
 						void this.muxer!.addEncodedAudioPacket(this.source._connectedTrack!, packet, meta);
 					},
 					error: (error) => {
+						error.stack = new Error().stack; // Provide a more useful stack trace
 						this.encoderError ??= error;
 					},
 				});
@@ -1226,14 +1235,20 @@ class AudioEncoderWrapper {
 		}
 	}
 
-	async flushAndClose() {
+	async flushAndClose(forceClose: boolean) {
 		this.checkForEncoderError();
 
 		if (this.customEncoder) {
-			void this.customEncoderCallSerializer.call(() => this.customEncoder!.flush());
+			if (!forceClose) {
+				void this.customEncoderCallSerializer.call(() => this.customEncoder!.flush());
+			}
+
 			await this.customEncoderCallSerializer.call(() => this.customEncoder!.close());
 		} else if (this.encoder) {
-			await this.encoder.flush();
+			if (!forceClose) {
+				await this.encoder.flush();
+			}
+
 			this.encoder.close();
 		}
 
@@ -1252,7 +1267,6 @@ class AudioEncoderWrapper {
 
 	checkForEncoderError() {
 		if (this.encoderError) {
-			this.encoderError.stack = new Error().stack; // Provide a more useful stack trace
 			throw this.encoderError;
 		}
 	}
@@ -1289,8 +1303,8 @@ export class AudioSampleSource extends AudioSource {
 	}
 
 	/** @internal */
-	override _flushAndClose() {
-		return this._encoder.flushAndClose();
+	override _flushAndClose(forceClose: boolean) {
+		return this._encoder.flushAndClose(forceClose);
 	}
 }
 
@@ -1333,8 +1347,8 @@ export class AudioBufferSource extends AudioSource {
 	}
 
 	/** @internal */
-	override _flushAndClose() {
-		return this._encoder.flushAndClose();
+	override _flushAndClose(forceClose: boolean) {
+		return this._encoder.flushAndClose(forceClose);
 	}
 }
 
@@ -1433,6 +1447,10 @@ export class MediaStreamAudioTrackSource extends AudioSource {
 			});
 		} else {
 			// Let's fall back to an AudioContext approach
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+			const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+
 			this._audioContext = new AudioContext({ sampleRate: this._track.getSettings().sampleRate });
 			const sourceNode = this._audioContext.createMediaStreamSource(new MediaStream([this._track]));
 			this._scriptProcessorNode = this._audioContext.createScriptProcessor(4096);
@@ -1480,7 +1498,7 @@ export class MediaStreamAudioTrackSource extends AudioSource {
 	}
 
 	/** @internal */
-	override async _flushAndClose() {
+	override async _flushAndClose(forceClose: boolean) {
 		if (this._abortController) {
 			this._abortController.abort();
 			this._abortController = null;
@@ -1493,7 +1511,7 @@ export class MediaStreamAudioTrackSource extends AudioSource {
 			await this._audioContext.suspend();
 		}
 
-		await this._encoder.flushAndClose();
+		await this._encoder.flushAndClose(forceClose);
 	}
 }
 
@@ -1527,9 +1545,7 @@ type MediaStreamTrackProcessorControllerMessage = {
 const mediaStreamTrackProcessorWorkerCode = () => {
 	const sendMessage = (message: MediaStreamTrackProcessorWorkerMessage, transfer?: Transferable[]) => {
 		if (transfer) {
-			// The error is bullshit, it's using the wrong postMessage
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
-			self.postMessage(message, transfer as any);
+			self.postMessage(message, { transfer });
 		} else {
 			self.postMessage(message);
 		}

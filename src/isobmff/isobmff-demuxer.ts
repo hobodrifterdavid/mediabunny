@@ -58,6 +58,7 @@ import {
 	roundToMultiple,
 	normalizeRotation,
 	Bitstream,
+	insertSorted,
 } from '../misc';
 import { EncodedPacket, PLACEHOLDER_DATA } from '../packet';
 import { Reader } from '../reader';
@@ -1509,6 +1510,12 @@ export class IsobmffDemuxer extends Demuxer {
 					const sampleIndex = this.metadataReader.readU32() - 1; // Convert to 0-indexed
 					track.sampleTable.keySampleIndices.push(sampleIndex);
 				}
+
+				if (track.sampleTable.keySampleIndices[0] !== 0) {
+					// Some files don't mark the first sample a key sample, which is basically almost always incorrect.
+					// Here, we correct for that mistake:
+					track.sampleTable.keySampleIndices.unshift(0);
+				}
 			}; break;
 
 			case 'stsc': {
@@ -1675,12 +1682,7 @@ export class IsobmffDemuxer extends Demuxer {
 
 				this.readContiguousBoxes(boxInfo.contentSize);
 
-				const insertionIndex = binarySearchLessOrEqual(
-					this.fragments,
-					this.currentFragment.moofOffset,
-					x => x.moofOffset,
-				);
-				this.fragments.splice(insertionIndex + 1, 0, this.currentFragment);
+				insertSorted(this.fragments, this.currentFragment, x => x.moofOffset);
 
 				// Compute the byte range of the sample data in this fragment, so we can load the whole fragment at once
 				for (const [, trackData] of this.currentFragment.trackData) {
@@ -1712,21 +1714,15 @@ export class IsobmffDemuxer extends Demuxer {
 					if (trackData) {
 						// We know there is sample data for this track in this fragment, so let's add it to the
 						// track's fragments:
-						const insertionIndex = binarySearchLessOrEqual(
-							this.currentTrack.fragments,
-							this.currentFragment.moofOffset,
-							x => x.moofOffset,
-						);
-						this.currentTrack.fragments.splice(insertionIndex + 1, 0, this.currentFragment);
+						insertSorted(this.currentTrack.fragments, this.currentFragment, x => x.moofOffset);
 
 						const hasKeyFrame = trackData.firstKeyFrameTimestamp !== null;
 						if (hasKeyFrame) {
-							const insertionIndex = binarySearchLessOrEqual(
+							insertSorted(
 								this.currentTrack.fragmentsWithKeyFrame,
-								this.currentFragment.moofOffset,
+								this.currentFragment,
 								x => x.moofOffset,
 							);
-							this.currentTrack.fragmentsWithKeyFrame.splice(insertionIndex + 1, 0, this.currentFragment);
 						}
 
 						const { currentFragmentState } = this.currentTrack;

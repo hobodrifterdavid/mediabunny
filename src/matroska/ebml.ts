@@ -314,8 +314,7 @@ export class EBMLWriter {
 		this.writer.write(this.helper.subarray(0, pos));
 	}
 
-	// Assumes the string is ASCII
-	writeString(str: string) {
+	writeAsciiString(str: string) {
 		this.writer.write(new Uint8Array(str.split('').map(x => x.charCodeAt(0))));
 	}
 
@@ -361,7 +360,7 @@ export class EBMLWriter {
 				this.writeUnsignedInt(data.data, size);
 			} else if (typeof data.data === 'string') {
 				this.writeVarInt(data.data.length);
-				this.writeString(data.data);
+				this.writeAsciiString(data.data);
 			} else if (data.data instanceof Uint8Array) {
 				this.writeVarInt(data.data.byteLength, data.size);
 				this.writer.write(data.data);
@@ -497,7 +496,7 @@ export class EBMLReader {
 		return value;
 	}
 
-	readString(length: number) {
+	readAsciiString(length: number) {
 		const { view, offset } = this.reader.getViewAndOffset(this.pos, this.pos + length);
 		this.pos += length;
 

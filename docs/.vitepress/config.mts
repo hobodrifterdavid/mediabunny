@@ -75,6 +75,12 @@ export default withMermaid({
 					{ text: 'Supported formats & codecs', link: '/guide/supported-formats-and-codecs' },
 				],
 			},
+			{
+				text: 'Extensions',
+				items: [
+					{ text: 'mp3-encoder', link: '/guide/extensions/mp3-encoder' },
+				],
+			},
 		],
 
 		socialLinks: [

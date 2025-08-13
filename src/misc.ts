@@ -292,6 +292,12 @@ export const binarySearchLessOrEqual = <T>(arr: T[], key: number, valueGetter: (
 	return ans;
 };
 
+/** Assumes the array is already sorted. */
+export const insertSorted = <T>(arr: T[], item: T, valueGetter: (x: T) => number) => {
+	const insertionIndex = binarySearchLessOrEqual(arr, valueGetter(item), valueGetter);
+	arr.splice(insertionIndex + 1, 0, item); // This even behaves correctly for the -1 case
+};
+
 export const promiseWithResolvers = <T = void>() => {
 	let resolve: (value: T) => void;
 	let reject: (reason: unknown) => void;
@@ -586,3 +592,27 @@ export class CallSerializer {
 		return this.currentPromise = this.currentPromise.then(fn);
 	}
 }
+
+let isSafariCache: boolean | null = null;
+export const isSafari = () => {
+	if (isSafariCache !== null) {
+		return isSafariCache;
+	}
+
+	const result = !!(
+		typeof navigator !== 'undefined'
+		&& navigator.vendor?.match(/apple/i)
+		&& !navigator.userAgent?.match(/crios/i)
+		&& !navigator.userAgent?.match(/fxios/i)
+		&& !navigator.userAgent?.match(/Opera|OPT\//)
+	);
+
+	isSafariCache = result;
+	return result;
+};
+
+/**
+ * T or a promise that resolves to T.
+ * @public
+ */
+export type MaybePromise<T> = T | Promise<T>;

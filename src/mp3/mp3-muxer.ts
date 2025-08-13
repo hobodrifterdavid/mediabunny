@@ -12,7 +12,7 @@ import { Output, OutputAudioTrack } from '../output';
 import { Mp3OutputFormat } from '../output-format';
 import { EncodedPacket } from '../packet';
 import { Writer } from '../writer';
-import { getXingOffset, INFO, readFrameHeader, XING } from './mp3-misc';
+import { getXingOffset, INFO, readFrameHeader, XING } from '../../shared/mp3-misc';
 import { Mp3Writer, XingFrameData } from './mp3-writer';
 
 export class Mp3Muxer extends Muxer {
@@ -50,7 +50,9 @@ export class Mp3Muxer extends Muxer {
 		const release = await this.mutex.acquire();
 
 		try {
-			if (!this.xingFrameData) {
+			const writeXingHeader = this.format._options.xingHeader !== false;
+
+			if (!this.xingFrameData && writeXingHeader) {
 				const view = toDataView(packet.data);
 				if (view.byteLength < 4) {
 					throw new Error('Invalid MP3 header in sample.');
@@ -97,11 +99,14 @@ export class Mp3Muxer extends Muxer {
 
 			this.validateAndNormalizeTimestamp(track, packet.timestamp, packet.type === 'key');
 
-			this.framePositions.push(this.writer.getPos());
 			this.writer.write(packet.data);
 			this.frameCount++;
 
 			await this.writer.flush();
+
+			if (writeXingHeader) {
+				this.framePositions.push(this.writer.getPos());
+			}
 		} finally {
 			release();
 		}

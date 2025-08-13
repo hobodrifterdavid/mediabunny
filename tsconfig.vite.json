@@ -6,12 +6,15 @@
 		"composite": true,
 		"noEmit": false,
 		"paths": {
-			"mediabunny": ["./dist/mediabunny.d.ts"],
+			"mediabunny": ["./src/index.ts"],
 		},
 		"types": ["vite/client"]
 	},
 	"include": [
 		"./vite.config.ts",
-		"./examples/**/*.ts",
-	]
+		"./examples/**/*.ts"
+	],
+	"references": [
+        { "path": "./src" }
+    ]
 }

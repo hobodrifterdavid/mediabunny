@@ -476,6 +476,12 @@ export class WebMOutputFormat extends MkvOutputFormat {
  */
 export type Mp3OutputFormatOptions = {
 	/**
+	 * Controls whether the Xing header, which contains additional metadata as well as an index, is written to the start
+	 * of the MP3 file. When disabled, the writing process becomes append-only. Defaults to true.
+	 */
+	xingHeader?: boolean;
+
+	/**
 	 * Will be called once the Xing metadata frame is finalized.
 	 *
 	 * @param data - The raw bytes.
@@ -495,6 +501,9 @@ export class Mp3OutputFormat extends OutputFormat {
 	constructor(options: Mp3OutputFormatOptions = {}) {
 		if (!options || typeof options !== 'object') {
 			throw new TypeError('options must be an object.');
+		}
+		if (options.xingHeader !== undefined && typeof options.xingHeader !== 'boolean') {
+			throw new TypeError('options.xingHeader, when provided, must be a boolean.');
 		}
 		if (options.onXingFrame !== undefined && typeof options.onXingFrame !== 'function') {
 			throw new TypeError('options.onXingFrame, when provided, must be a function.');

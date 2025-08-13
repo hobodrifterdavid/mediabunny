@@ -13,10 +13,11 @@ import {
 	AnyIterable,
 	assert,
 	assertNever,
-	binarySearchLessOrEqual,
 	CallSerializer,
 	getInt24,
 	getUint24,
+	insertSorted,
+	isSafari,
 	last,
 	mapAsyncGenerator,
 	promiseWithResolvers,
@@ -751,7 +752,8 @@ class VideoDecoderWrapper extends DecoderWrapper<VideoSample> {
 	customDecoderCallSerializer = new CallSerializer();
 	customDecoderQueueSize = 0;
 
-	sampleQueue: VideoSample[] = [];
+	inputTimestamps: number[] = []; // Timestamps input into the decoder, sorted.
+	sampleQueue: VideoSample[] = []; // Safari-specific thing, check usage.
 
 	constructor(
 		onSample: (sample: VideoSample) => unknown,
@@ -762,28 +764,6 @@ class VideoDecoderWrapper extends DecoderWrapper<VideoSample> {
 		public timeResolution: number,
 	) {
 		super(onSample, onError);
-
-		const sampleHandler = (sample: VideoSample) => {
-			// For correct B-frame handling, we don't just hand over the frames directly but instead add them to a
-			// queue, because we want to ensure frames are emitted in presentation order. We flush the queue each time
-			// we receive a frame with a timestamp larger than the highest we've seen so far, as we can sure that is
-			// not a B-frame. Typically, WebCodecs automatically guarantees that frames are emitted in presentation
-			// order, but some browsers (Safari) don't always follow this rule.
-			if (this.sampleQueue.length > 0 && (sample.timestamp >= last(this.sampleQueue)!.timestamp)) {
-				for (const sample of this.sampleQueue) {
-					this.finalizeAndEmitSample(sample);
-				}
-
-				this.sampleQueue.length = 0;
-			}
-
-			const insertionIndex = binarySearchLessOrEqual(
-				this.sampleQueue,
-				sample.timestamp,
-				x => x.timestamp,
-			);
-			this.sampleQueue.splice(insertionIndex + 1, 0, sample);
-		};
 
 		const MatchingCustomDecoder = customVideoDecoders.find(x => x.supports(codec, decoderConfig));
 		if (MatchingCustomDecoder) {
@@ -799,11 +779,45 @@ class VideoDecoderWrapper extends DecoderWrapper<VideoSample> {
 					throw new TypeError('The argument passed to onSample must be a VideoSample.');
 				}
 
-				sampleHandler(sample);
+				this.finalizeAndEmitSample(sample);
 			};
 
 			void this.customDecoderCallSerializer.call(() => this.customDecoder!.init());
 		} else {
+			// Specific handler for the WebCodecs VideoDecoder to iron out browser differences
+			const sampleHandler = (sample: VideoSample) => {
+				if (isSafari()) {
+					// For correct B-frame handling, we don't just hand over the frames directly but instead add them to
+					// a queue, because we want to ensure frames are emitted in presentation order. We flush the queue
+					// each time we receive a frame with a timestamp larger than the highest we've seen so far, as we
+					// can sure that is not a B-frame. Typically, WebCodecs automatically guarantees that frames are
+					// emitted in presentation order, but Safari doesn't always follow this rule.
+					if (this.sampleQueue.length > 0 && (sample.timestamp >= last(this.sampleQueue)!.timestamp)) {
+						for (const sample of this.sampleQueue) {
+							this.finalizeAndEmitSample(sample);
+						}
+
+						this.sampleQueue.length = 0;
+					}
+
+					insertSorted(this.sampleQueue, sample, x => x.timestamp);
+				} else {
+					// Assign it the next earliest timestamp from the input. We do this because browsers, by spec, are
+					// required to emit decoded frames in presentation order *while* retaining the timestamp of their
+					// originating EncodedVideoChunk. For files with B-frames but no out-of-order timestamps (like a
+					// missing ctts box, for example), this causes a mismatch. We therefore fix the timestamps and
+					// ensure they are sorted by doing this.
+					const timestamp = this.inputTimestamps.shift();
+
+					// There's no way we'd have more decoded frames than encoded packets we passed in. Actually, the
+					// correspondence should be 1:1.
+					assert(timestamp !== undefined);
+
+					sample.setTimestamp(timestamp);
+					this.finalizeAndEmitSample(sample);
+				}
+			};
+
 			this.decoder = new VideoDecoder({
 				output: frame => sampleHandler(new VideoSample(frame)),
 				error: onError,
@@ -838,6 +852,11 @@ class VideoDecoderWrapper extends DecoderWrapper<VideoSample> {
 				.then(() => this.customDecoderQueueSize--);
 		} else {
 			assert(this.decoder);
+
+			if (!isSafari()) {
+				insertSorted(this.inputTimestamps, packet.timestamp, x => x);
+			}
+
 			this.decoder.decode(packet.toEncodedVideoChunk());
 		}
 	}
@@ -850,10 +869,13 @@ class VideoDecoderWrapper extends DecoderWrapper<VideoSample> {
 			await this.decoder.flush();
 		}
 
-		for (const sample of this.sampleQueue) {
-			this.finalizeAndEmitSample(sample);
+		if (isSafari()) {
+			for (const sample of this.sampleQueue) {
+				this.finalizeAndEmitSample(sample);
+			}
+
+			this.sampleQueue.length = 0;
 		}
-		this.sampleQueue.length = 0;
 	}
 
 	close() {
@@ -1227,9 +1249,15 @@ class AudioDecoderWrapper extends DecoderWrapper<AudioSample> {
 		super(onSample, onError);
 
 		const sampleHandler = (sample: AudioSample) => {
-			const sampleRate = decoderConfig.sampleRate;
+			if (sample.numberOfFrames === 0) {
+				// We skip zero-data (empty) AudioSamples. These are sometimes emitted, for example, by Firefox when it
+				// decodes Vorbis (at the start).
+				sample.close();
+				return;
+			}
 
 			// Round the timestamp to the sample rate
+			const sampleRate = decoderConfig.sampleRate;
 			sample.setTimestamp(Math.round(sample.timestamp * sampleRate) / sampleRate);
 
 			onSample(sample);

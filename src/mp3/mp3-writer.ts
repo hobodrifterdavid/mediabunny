@@ -14,7 +14,7 @@ import {
 	MPEG_V2_BITRATES,
 	SAMPLING_RATES,
 	XING,
-} from './mp3-misc';
+} from '../../shared/mp3-misc';
 
 export type XingFrameData = {
 	mpegVersionId: number;

@@ -34,10 +34,9 @@ export default tseslint.config(
 	{
 		ignores: [
 			'dist',
-			'build',
-			'api-sketch.ts',
-			'build.mjs',
-			'append-namespace.mjs',
+			'dist-docs',
+			'packages/mp3-encoder/dist',
+			'packages/mp3-encoder/build',
 			'eslint.config.mjs',
 			'docs/.vitepress/cache',
 		]

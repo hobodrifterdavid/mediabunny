@@ -49,8 +49,15 @@ Core features include:
 
 ### Installation
 
+Install it via npm:
+
 ```bash
 npm install mediabunny
+```
+
+Alternatively, include it directly with a script tag using one of the [builds](https://github.com/Vanilagy/mediabunny/releases). Doing so exposes a global `Mediabunny` object.
+```html
+<script src="mediabunny.cjs"></script>
 ```
 
 Requires any JavaScript environment that can run ECMAScript 2021 or later. Mediabunny is expected to be run in modern browsers. For types, TypeScript 5.7 or later is required.

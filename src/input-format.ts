@@ -13,7 +13,7 @@ import { IsobmffReader } from './isobmff/isobmff-reader';
 import { EBMLId, EBMLReader } from './matroska/ebml';
 import { MatroskaDemuxer } from './matroska/matroska-demuxer';
 import { Mp3Demuxer } from './mp3/mp3-demuxer';
-import { FRAME_HEADER_SIZE } from './mp3/mp3-misc';
+import { FRAME_HEADER_SIZE } from '../shared/mp3-misc';
 import { Mp3Reader } from './mp3/mp3-reader';
 import { OggDemuxer } from './ogg/ogg-demuxer';
 import { OggReader } from './ogg/ogg-reader';
@@ -154,7 +154,7 @@ export class MatroskaInputFormat extends InputFormat {
 					}
 				}; break;
 				case EBMLId.DocType: {
-					const docType = ebmlReader.readString(size);
+					const docType = ebmlReader.readAsciiString(size);
 					if (docType !== desiredDocType) {
 						return false;
 					}

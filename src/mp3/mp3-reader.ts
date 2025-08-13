@@ -8,7 +8,7 @@
 
 import { assert } from '../misc';
 import { Reader } from '../reader';
-import { FRAME_HEADER_SIZE, FrameHeader, readFrameHeader } from './mp3-misc';
+import { FRAME_HEADER_SIZE, FrameHeader, readFrameHeader } from '../../shared/mp3-misc';
 
 export class Mp3Reader {
 	pos = 0;

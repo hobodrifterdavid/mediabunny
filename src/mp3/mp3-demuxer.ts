@@ -11,9 +11,9 @@ import { Demuxer } from '../demuxer';
 import { Input } from '../input';
 import { InputAudioTrack, InputAudioTrackBacking } from '../input-track';
 import { PacketRetrievalOptions } from '../media-sink';
-import { assert, binarySearchExact, binarySearchLessOrEqual, last, UNDETERMINED_LANGUAGE } from '../misc';
+import { assert, AsyncMutex, binarySearchExact, binarySearchLessOrEqual, UNDETERMINED_LANGUAGE } from '../misc';
 import { EncodedPacket, PLACEHOLDER_DATA } from '../packet';
-import { FrameHeader, getXingOffset, INFO, XING } from './mp3-misc';
+import { FrameHeader, getXingOffset, INFO, XING } from '../../shared/mp3-misc';
 import { Mp3Reader } from './mp3-reader';
 
 type Sample = {
@@ -28,9 +28,14 @@ export class Mp3Demuxer extends Demuxer {
 
 	metadataPromise: Promise<void> | null = null;
 	firstFrameHeader: FrameHeader | null = null;
-	allSamples: Sample[] = [];
+	loadedSamples: Sample[] = []; // All samples from the start of the file to lastLoadedPos
 
 	tracks: InputAudioTrack[] = [];
+
+	loadingMutex = new AsyncMutex();
+	lastLoadedPos = 0;
+	fileSize = 0;
+	nextTimestampInSamples = 0;
 
 	constructor(input: Input) {
 		super(input);
@@ -40,53 +45,12 @@ export class Mp3Demuxer extends Demuxer {
 
 	async readMetadata() {
 		return this.metadataPromise ??= (async () => {
-			const fileSize = await this.input.source.getSize();
-			this.reader.fileSize = fileSize;
+			this.fileSize = await this.input.source.getSize();
+			this.reader.fileSize = this.fileSize;
 
-			// Just load the entire file. Primitive, but the only way to actually ensure 100% correct timestamps.
-			// Random access in MP3 can be flaky and unreliable.
-			await this.reader.reader.loadRange(0, fileSize);
-
-			const id3Tag = this.reader.readId3();
-			if (id3Tag) {
-				this.reader.pos += id3Tag.size;
-			}
-
-			let nextTimestampInSamples = 0;
-
-			// Let's read all samples
-			while (true) {
-				const header = this.reader.readNextFrameHeader();
-				if (!header) {
-					break;
-				}
-
-				const xingOffset = getXingOffset(header.mpegVersionId, header.channel);
-				this.reader.pos = header.startPos + xingOffset;
-				const word = this.reader.readU32();
-				const isXing = word === XING || word === INFO;
-
-				this.reader.pos = header.startPos + header.totalSize - 1; // -1 in case the frame is 1 byte too short
-
-				if (isXing) {
-					// There's no actual audio data in this frame, so let's skip it
-					continue;
-				}
-
-				if (!this.firstFrameHeader) {
-					this.firstFrameHeader = header;
-				}
-
-				const sampleDuration = header.audioSamplesInFrame / header.sampleRate;
-				const sample: Sample = {
-					timestamp: nextTimestampInSamples / header.sampleRate,
-					duration: sampleDuration,
-					dataStart: header.startPos,
-					dataSize: header.totalSize,
-				};
-
-				this.allSamples.push(sample);
-				nextTimestampInSamples += header.audioSamplesInFrame;
+			// Keep loading until we find the first frame header
+			while (!this.firstFrameHeader && this.lastLoadedPos < this.fileSize) {
+				await this.loadNextChunk();
 			}
 
 			if (!this.firstFrameHeader) {
@@ -95,6 +59,80 @@ export class Mp3Demuxer extends Demuxer {
 
 			this.tracks = [new InputAudioTrack(new Mp3AudioTrackBacking(this))];
 		})();
+	}
+
+	/** Loads the next 0.5 MiB of frames. */
+	async loadNextChunk() {
+		const release = await this.loadingMutex.acquire();
+
+		try {
+			assert(this.lastLoadedPos < this.fileSize);
+
+			const chunkSize = 0.5 * 1024 * 1024; // 0.5 MiB
+			const endPos = Math.min(this.lastLoadedPos + chunkSize, this.fileSize);
+			await this.reader.reader.loadRange(this.lastLoadedPos, endPos);
+
+			this.lastLoadedPos = endPos;
+			assert(this.lastLoadedPos <= this.fileSize);
+
+			if (this.reader.pos === 0) {
+				// First time, let's see if there's an ID3 tag
+				const id3Tag = this.reader.readId3();
+				if (id3Tag) {
+					this.reader.pos += id3Tag.size;
+				}
+			}
+
+			this.parseFramesFromLoadedData();
+		} finally {
+			release();
+		}
+	}
+
+	private parseFramesFromLoadedData() {
+		while (true) {
+			const startPos = this.reader.pos;
+			const header = this.reader.readNextFrameHeader();
+			if (!header) {
+				break;
+			}
+
+			// Check if the entire frame fits in the loaded data
+			if (header.startPos + header.totalSize > this.lastLoadedPos) {
+				// Frame doesn't fit, reset positions and stop
+				this.reader.pos = startPos;
+				this.lastLoadedPos = startPos; // Snap this back too so that the next read is frame-aligned
+
+				break;
+			}
+
+			const xingOffset = getXingOffset(header.mpegVersionId, header.channel);
+			this.reader.pos = header.startPos + xingOffset;
+			const word = this.reader.readU32();
+			const isXing = word === XING || word === INFO;
+
+			this.reader.pos = header.startPos + header.totalSize - 1; // -1 in case the frame is 1 byte too short
+
+			if (isXing) {
+				// There's no actual audio data in this frame, so let's skip it
+				continue;
+			}
+
+			if (!this.firstFrameHeader) {
+				this.firstFrameHeader = header;
+			}
+
+			const sampleDuration = header.audioSamplesInFrame / header.sampleRate;
+			const sample: Sample = {
+				timestamp: this.nextTimestampInSamples / header.sampleRate,
+				duration: sampleDuration,
+				dataStart: header.startPos,
+				dataSize: header.totalSize,
+			};
+
+			this.loadedSamples.push(sample);
+			this.nextTimestampInSamples += header.audioSamplesInFrame;
+		}
 	}
 
 	async getMimeType() {
@@ -109,10 +147,10 @@ export class Mp3Demuxer extends Demuxer {
 	async computeDuration() {
 		await this.readMetadata();
 
-		const lastSample = last(this.allSamples);
-		assert(lastSample);
+		const track = this.tracks[0];
+		assert(track);
 
-		return lastSample.timestamp + lastSample.duration;
+		return track.computeDuration();
 	}
 }
 
@@ -132,8 +170,9 @@ class Mp3AudioTrackBacking implements InputAudioTrackBacking {
 		return this.demuxer.firstFrameHeader.sampleRate / this.demuxer.firstFrameHeader.audioSamplesInFrame;
 	}
 
-	computeDuration() {
-		return this.demuxer.computeDuration();
+	async computeDuration() {
+		const lastPacket = await this.getPacket(Infinity, { metadataOnly: true });
+		return (lastPacket?.timestamp ?? 0) + (lastPacket?.duration ?? 0);
 	}
 
 	getLanguageCode() {
@@ -209,7 +248,7 @@ class Mp3AudioTrackBacking implements InputAudioTrackBacking {
 			return null;
 		}
 
-		const rawSample = this.demuxer.allSamples[sampleIndex];
+		const rawSample = this.demuxer.loadedSamples[sampleIndex];
 		if (!rawSample) {
 			return null;
 		}
@@ -233,12 +272,17 @@ class Mp3AudioTrackBacking implements InputAudioTrackBacking {
 	}
 
 	async getFirstPacket(options: PacketRetrievalOptions) {
+		// Ensure we have at least one frame loaded
+		while (this.demuxer.loadedSamples.length === 0 && this.demuxer.lastLoadedPos < this.demuxer.fileSize) {
+			await this.demuxer.loadNextChunk();
+		}
+
 		return this.getPacketAtIndex(0, options);
 	}
 
 	async getNextPacket(packet: EncodedPacket, options: PacketRetrievalOptions) {
 		const sampleIndex = binarySearchExact(
-			this.demuxer.allSamples,
+			this.demuxer.loadedSamples,
 			packet.timestamp,
 			x => x.timestamp,
 		);
@@ -246,16 +290,41 @@ class Mp3AudioTrackBacking implements InputAudioTrackBacking {
 			throw new Error('Packet was not created from this track.');
 		}
 
-		return this.getPacketAtIndex(sampleIndex + 1, options);
+		const nextIndex = sampleIndex + 1;
+		// Ensure the next sample exists
+		while (nextIndex >= this.demuxer.loadedSamples.length && this.demuxer.lastLoadedPos < this.demuxer.fileSize) {
+			await this.demuxer.loadNextChunk();
+		}
+
+		return this.getPacketAtIndex(nextIndex, options);
 	}
 
 	async getPacket(timestamp: number, options: PacketRetrievalOptions) {
-		const index = binarySearchLessOrEqual(
-			this.demuxer.allSamples,
-			timestamp,
-			x => x.timestamp,
-		);
-		return this.getPacketAtIndex(index, options);
+		while (true) {
+			const index = binarySearchLessOrEqual(
+				this.demuxer.loadedSamples,
+				timestamp,
+				x => x.timestamp,
+			);
+
+			if (index === -1 && this.demuxer.loadedSamples.length > 0) {
+				// We're before the first sample
+				return null;
+			}
+
+			if (this.demuxer.lastLoadedPos === this.demuxer.fileSize) {
+				// All data is loaded, return what we found
+				return this.getPacketAtIndex(index, options);
+			}
+
+			if (index >= 0 && index + 1 < this.demuxer.loadedSamples.length) {
+				// The next packet also exists, we're done
+				return this.getPacketAtIndex(index, options);
+			}
+
+			// Otherwise, keep loading data
+			await this.demuxer.loadNextChunk();
+		}
 	}
 
 	getKeyPacket(timestamp: number, options: PacketRetrievalOptions) {

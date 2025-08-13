@@ -380,7 +380,7 @@ export class Output<
 
 			const release = await this._mutex.acquire();
 
-			const promises = this._tracks.map(x => x.source._flushOrWaitForClose());
+			const promises = this._tracks.map(x => x.source._flushOrWaitForOngoingClose(true)); // Force close
 			await Promise.all(promises);
 
 			await this._writer.close();
@@ -410,7 +410,7 @@ export class Output<
 
 			const release = await this._mutex.acquire();
 
-			const promises = this._tracks.map(x => x.source._flushOrWaitForClose());
+			const promises = this._tracks.map(x => x.source._flushOrWaitForOngoingClose(false));
 			await Promise.all(promises);
 
 			await this._muxer.finalize();
