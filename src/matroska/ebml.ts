@@ -436,19 +436,30 @@ export class EBMLReader {
 			mask >>= 1;
 		}
 
-		const { view: fullView, offset: fullOffset } = this.reader.getViewAndOffset(this.pos, this.pos + width);
+		// Check if the VarInt would extend beyond available data
+		// We need to be more careful here since we're working with a streaming reader
+		try {
+			const { view: fullView, offset: fullOffset } = this.reader.getViewAndOffset(this.pos, this.pos + width);
 
-		// First byte's value needs the marker bit cleared
-		let value = firstByte & (mask - 1);
+			// First byte's value needs the marker bit cleared
+			let value = firstByte & (mask - 1);
 
-		// Read remaining bytes
-		for (let i = 1; i < width; i++) {
-			value *= 1 << 8;
-			value += fullView.getUint8(fullOffset + i);
+			// Read remaining bytes
+			for (let i = 1; i < width; i++) {
+				value *= 1 << 8;
+				value += fullView.getUint8(fullOffset + i);
+			}
+
+			this.pos += width;
+			return value;
+		} catch (error) {
+			// If we can't read the full VarInt, it might be a boundary condition
+			if (error instanceof Error && error.message.includes('No segment loaded for range')) {
+				throw new Error(`VarInt extends beyond file boundary at position ${this.pos}. Expected ${width} bytes but cannot read full range.`);
+			}
+			// Re-throw other errors
+			throw error;
 		}
-
-		this.pos += width;
-		return value;
 	}
 
 	readUnsignedInt(width: number) {

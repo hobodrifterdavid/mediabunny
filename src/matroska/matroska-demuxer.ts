@@ -256,7 +256,19 @@ export class MatroskaDemuxer extends Demuxer {
 					this.metadataReader.pos + MAX_HEADER_SIZE,
 				);
 
-				const header = this.metadataReader.readElementHeader();
+				let header;
+				try {
+					header = this.metadataReader.readElementHeader();
+				} catch (error) {
+					// Handle boundary conditions near the end of file
+					if (error instanceof Error && error.message.includes('VarInt extends beyond file boundary')) {
+						console.warn(`[MATROSKA] Reached end of file while reading element header at position ${this.metadataReader.pos}: ${error.message}`);
+						break;
+					}
+					// Re-throw other errors
+					throw error;
+				}
+				
 				const id = header.id;
 				let size = header.size;
 				const startPos = this.metadataReader.pos;
@@ -1069,7 +1081,7 @@ export class MatroskaDemuxer extends Demuxer {
 				
 				// LanguageIETF uses BCP 47 language codes (like "en", "en-US", etc.)
 				// Type: string (ASCII) according to RFC 9559
-				this.currentTrack.languageBCP47 = reader.readString(size);
+				this.currentTrack.languageBCP47 = reader.readAsciiString(size);
 			}; break;
 
 			case EBMLId.Name: {
