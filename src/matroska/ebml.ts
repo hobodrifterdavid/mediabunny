@@ -381,7 +381,7 @@ export class EBMLWriter {
 
 const MAX_VAR_INT_SIZE = 8;
 export const MIN_HEADER_SIZE = 2; // 1-byte ID and 1-byte size
-export const MAX_HEADER_SIZE = 4 + MAX_VAR_INT_SIZE; // 4-byte ID and 8-byte size
+export const MAX_HEADER_SIZE = 2 * MAX_VAR_INT_SIZE; // 8-byte ID and 8-byte size
 
 export class EBMLReader {
 	pos = 0;
@@ -413,9 +413,13 @@ export class EBMLReader {
 		const { view, offset } = this.reader.getViewAndOffset(this.pos, this.pos + 1);
 		const firstByte = view.getUint8(offset);
 
+		if (firstByte === 0) {
+			return null; // Invalid VINT
+		}
+
 		let width = 1;
 		let mask = 0x80;
-		while ((firstByte & mask) === 0 && width < 8) {
+		while ((firstByte & mask) === 0) {
 			width++;
 			mask >>= 1;
 		}
@@ -428,10 +432,14 @@ export class EBMLReader {
 		const { view, offset } = this.reader.getViewAndOffset(this.pos, this.pos + 1);
 		const firstByte = view.getUint8(offset);
 
+		if (firstByte === 0) {
+			return null; // Invalid VINT
+		}
+
 		// Find the position of VINT_MARKER, which determines the width
 		let width = 1;
 		let mask = 1 << 7;
-		while ((firstByte & mask) === 0 && width < MAX_VAR_INT_SIZE) {
+		while ((firstByte & mask) === 0) {
 			width++;
 			mask >>= 1;
 		}
@@ -528,8 +536,11 @@ export class EBMLReader {
 
 	readElementId() {
 		const size = this.readVarIntSize();
-		const id = this.readUnsignedInt(size);
+		if (size === null) {
+			return null;
+		}
 
+		const id = this.readUnsignedInt(size);
 		return id;
 	}
 
@@ -557,6 +568,10 @@ export class EBMLReader {
 
 	readElementHeader() {
 		const id = this.readElementId();
+		if (id === null) {
+			return null;
+		}
+
 		const size = this.readElementSize();
 
 		return { id, size };
@@ -567,13 +582,17 @@ export class EBMLReader {
 		const loadChunkSize = 2 ** 20; // 1 MiB
 		const idsSet = new Set(ids);
 
-		while (this.pos < until - MAX_HEADER_SIZE) {
-			if (!this.reader.rangeIsLoaded(this.pos, this.pos + MAX_HEADER_SIZE)) {
+		while (this.pos <= until - MIN_HEADER_SIZE) {
+			if (!this.reader.rangeIsLoaded(this.pos, Math.min(this.pos + MAX_HEADER_SIZE, until))) {
 				await this.reader.loadRange(this.pos, Math.min(this.pos + loadChunkSize, until));
 			}
 
 			const elementStartPos = this.pos;
 			const elementHeader = this.readElementHeader();
+			if (!elementHeader) {
+				break;
+			}
+
 			if (idsSet.has(elementHeader.id)) {
 				return elementStartPos;
 			}

@@ -10,7 +10,7 @@ import { Demuxer } from './demuxer';
 import { Input } from './input';
 import { IsobmffDemuxer } from './isobmff/isobmff-demuxer';
 import { IsobmffReader } from './isobmff/isobmff-reader';
-import { EBMLId, EBMLReader } from './matroska/ebml';
+import { EBMLId, EBMLReader, MIN_HEADER_SIZE } from './matroska/ebml';
 import { MatroskaDemuxer } from './matroska/matroska-demuxer';
 import { Mp3Demuxer } from './mp3/mp3-demuxer';
 import { FRAME_HEADER_SIZE } from '../shared/mp3-misc';
@@ -106,6 +106,10 @@ export class QuickTimeInputFormat extends IsobmffInputFormat {
 	}
 }
 
+function foo() {
+	return 5;
+}
+
 /**
  * Matroska file format.
  * @public
@@ -120,6 +124,12 @@ export class MatroskaInputFormat extends InputFormat {
 
 		const ebmlReader = new EBMLReader(input._mainReader);
 		const varIntSize = ebmlReader.readVarIntSize();
+		if (varIntSize === null) {
+			return false;
+		}
+
+		foo();
+
 		if (varIntSize < 1 || varIntSize > 8) {
 			return false;
 		}
@@ -135,8 +145,11 @@ export class MatroskaInputFormat extends InputFormat {
 		}
 
 		const startPos = ebmlReader.pos;
-		while (ebmlReader.pos < startPos + dataSize) {
-			const { id, size } = ebmlReader.readElementHeader();
+		while (ebmlReader.pos <= startPos + dataSize - MIN_HEADER_SIZE) {
+			const header = ebmlReader.readElementHeader();
+			if (!header) break;
+
+			const { id, size } = header;
 			const dataStartPos = ebmlReader.pos;
 			if (size === null) return false;
 

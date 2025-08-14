@@ -257,6 +257,10 @@ export class MatroskaDemuxer extends Demuxer {
 				);
 
 				const header = this.metadataReader.readElementHeader();
+				if (!header) {
+					break; // Zero padding at the end of the file triggers this, for example
+				}
+
 				const id = header.id;
 				let size = header.size;
 				const startPos = this.metadataReader.pos;
@@ -336,14 +340,19 @@ export class MatroskaDemuxer extends Demuxer {
 		);
 
 		let clusterEncountered = false;
-		while (this.metadataReader.pos < this.currentSegment.elementEndPos) {
+		while (this.metadataReader.pos <= this.currentSegment.elementEndPos - MIN_HEADER_SIZE) {
 			await this.metadataReader.reader.loadRange(
 				this.metadataReader.pos,
 				this.metadataReader.pos + MAX_HEADER_SIZE,
 			);
 
 			const elementStartPos = this.metadataReader.pos;
-			const { id, size } = this.metadataReader.readElementHeader();
+			const header = this.metadataReader.readElementHeader();
+			if (!header) {
+				break;
+			}
+
+			const { id, size } = header;
 			const dataStartPos = this.metadataReader.pos;
 
 			const metadataElementIndex = METADATA_ELEMENTS.findIndex(x => x.id === id);
@@ -410,7 +419,10 @@ export class MatroskaDemuxer extends Demuxer {
 				this.metadataReader.pos,
 				this.metadataReader.pos + 2 ** 12, // Load a larger range, assuming the correct element will be there
 			);
-			const { id, size } = this.metadataReader.readElementHeader();
+			const header = this.metadataReader.readElementHeader();
+			if (!header) continue;
+
+			const { id, size } = header;
 			if (id !== target.id) continue;
 
 			assertDefinedSize(size);
@@ -487,6 +499,8 @@ export class MatroskaDemuxer extends Demuxer {
 
 		const elementStartPos = this.metadataReader.pos;
 		const elementHeader = this.metadataReader.readElementHeader();
+		assert(elementHeader);
+
 		const id = elementHeader.id;
 		let size = elementHeader.size;
 		const dataStartPos = this.metadataReader.pos;
@@ -738,12 +752,20 @@ export class MatroskaDemuxer extends Demuxer {
 		const startIndex = reader.pos;
 
 		while (reader.pos - startIndex <= totalSize - MIN_HEADER_SIZE) {
-			this.traverseElement(reader);
+			const foundElement = this.traverseElement(reader);
+			if (!foundElement) {
+				break;
+			}
 		}
 	}
 
-	traverseElement(reader: EBMLReader) {
-		const { id, size } = reader.readElementHeader();
+	traverseElement(reader: EBMLReader): boolean {
+		const header = reader.readElementHeader();
+		if (!header) {
+			return false;
+		}
+
+		const { id, size } = header;
 		const dataStartPos = reader.pos;
 		assertDefinedSize(size);
 
@@ -1226,6 +1248,8 @@ export class MatroskaDemuxer extends Demuxer {
 				if (!this.currentCluster) break;
 
 				const trackNumber = reader.readVarInt();
+				if (trackNumber === null) break;
+
 				const relativeTimestamp = reader.readS16();
 
 				const flags = reader.readU8();
@@ -1261,6 +1285,8 @@ export class MatroskaDemuxer extends Demuxer {
 				if (!this.currentCluster) break;
 
 				const trackNumber = reader.readVarInt();
+				if (trackNumber === null) break;
+
 				const relativeTimestamp = reader.readS16();
 
 				const flags = reader.readU8();
@@ -1297,6 +1323,7 @@ export class MatroskaDemuxer extends Demuxer {
 		}
 
 		reader.pos = dataStartPos + size;
+		return true;
 	}
 }
 
@@ -1707,7 +1734,7 @@ abstract class MatroskaTrackBacking implements InputTrackBacking {
 				}
 			}
 
-			while (metadataReader.pos < segment.elementEndPos) {
+			while (metadataReader.pos <= segment.elementEndPos - MIN_HEADER_SIZE) {
 				if (prevCluster) {
 					const trackData = prevCluster.trackData.get(this.internalTrack.id);
 					if (trackData && trackData.startTimestamp > latestTimestamp) {
@@ -1727,6 +1754,10 @@ abstract class MatroskaTrackBacking implements InputTrackBacking {
 				await metadataReader.reader.loadRange(metadataReader.pos, metadataReader.pos + MAX_HEADER_SIZE);
 				const elementStartPos = metadataReader.pos;
 				const elementHeader = metadataReader.readElementHeader();
+				if (!elementHeader) {
+					break;
+				}
+
 				const id = elementHeader.id;
 				let size = elementHeader.size;
 				const dataStartPos = metadataReader.pos;
