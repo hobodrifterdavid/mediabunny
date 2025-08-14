@@ -1091,7 +1091,7 @@ export class MatroskaDemuxer extends Demuxer {
 				
 				// LanguageIETF uses BCP 47 language codes (like "en", "en-US", etc.)
 				// Type: string (ASCII) according to RFC 9559
-				this.currentTrack.languageBCP47 = reader.readString(size);
+				this.currentTrack.languageBCP47 = reader.readAsciiString(size);
 			}; break;
 
 			case EBMLId.Name: {
