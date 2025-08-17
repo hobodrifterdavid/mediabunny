@@ -108,7 +108,7 @@ For simplicity, all built WASM artifacts are included in the repo, since these r
 
 ### Prerequisites
 
-[Install Emscripten](https://emscripten.org/docs/getting_started/downloads.html). The recommended way is using the emsdk, which involves cloning a repo and running a few commands.
+[Install Emscripten](https://emscripten.org/docs/getting_started/downloads.html). The recommended way is using the emsdk, which involves cloning a repo and running a few commands. The following commands assume Emscripten is sourced in.
 
 ### Compiling LAME:
 
@@ -139,6 +139,7 @@ emcc src/lame-bridge.c build/libmp3lame.a \
     -s MODULARIZE=1 \
     -s EXPORT_ES6=1 \
     -s SINGLE_FILE=1 \
+    -s ALLOW_MEMORY_GROWTH=1 \
     -s ENVIRONMENT=web,worker \
     -s EXPORTED_RUNTIME_METHODS=cwrap,HEAPU8 \
     -s EXPORTED_FUNCTIONS=_malloc,_free \

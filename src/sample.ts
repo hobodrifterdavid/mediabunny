@@ -1067,6 +1067,49 @@ export class AudioSample {
 		(this.timestamp as number) = newTimestamp;
 	}
 
+	/** @internal */
+	static* _fromAudioBuffer(audioBuffer: AudioBuffer, timestamp: number) {
+		if (!(audioBuffer instanceof AudioBuffer)) {
+			throw new TypeError('audioBuffer must be an AudioBuffer.');
+		}
+
+		const MAX_FLOAT_COUNT = 48000 * 5; // 5 seconds of mono 48 kHz audio per sample
+
+		const numberOfChannels = audioBuffer.numberOfChannels;
+		const sampleRate = audioBuffer.sampleRate;
+		const totalFrames = audioBuffer.length;
+		const maxFramesPerChunk = Math.floor(MAX_FLOAT_COUNT / numberOfChannels);
+
+		let currentRelativeFrame = 0;
+		let remainingFrames = totalFrames;
+
+		// Create AudioSamples in a chunked fashion so we don't create huge Float32Arrays
+		while (remainingFrames > 0) {
+			const framesToCopy = Math.min(maxFramesPerChunk, remainingFrames);
+			const chunkData = new Float32Array(numberOfChannels * framesToCopy);
+
+			for (let channel = 0; channel < numberOfChannels; channel++) {
+				audioBuffer.copyFromChannel(
+					chunkData.subarray(channel * framesToCopy, (channel + 1) * framesToCopy),
+					channel,
+					currentRelativeFrame,
+				);
+			}
+
+			yield new AudioSample({
+				format: 'f32-planar',
+				sampleRate,
+				numberOfFrames: framesToCopy,
+				numberOfChannels,
+				timestamp: timestamp + currentRelativeFrame / sampleRate,
+				data: chunkData,
+			});
+
+			currentRelativeFrame += framesToCopy;
+			remainingFrames -= framesToCopy;
+		}
+	}
+
 	/**
 	 * Creates AudioSamples from an AudioBuffer, starting at the given timestamp in seconds. Typically creates exactly
 	 * one sample, but may create multiple if the AudioBuffer is exceedingly large.
@@ -1076,7 +1119,7 @@ export class AudioSample {
 			throw new TypeError('audioBuffer must be an AudioBuffer.');
 		}
 
-		const MAX_FLOAT_COUNT = 64 * 1024 * 1024;
+		const MAX_FLOAT_COUNT = 48000 * 5; // 5 seconds of mono 48 kHz audio per sample
 
 		const numberOfChannels = audioBuffer.numberOfChannels;
 		const sampleRate = audioBuffer.sampleRate;
@@ -1088,14 +1131,14 @@ export class AudioSample {
 
 		const result: AudioSample[] = [];
 
-		// Create AudioData in a chunked fashion so we don't create huge Float32Arrays
+		// Create AudioSamples in a chunked fashion so we don't create huge Float32Arrays
 		while (remainingFrames > 0) {
 			const framesToCopy = Math.min(maxFramesPerChunk, remainingFrames);
 			const chunkData = new Float32Array(numberOfChannels * framesToCopy);
 
 			for (let channel = 0; channel < numberOfChannels; channel++) {
 				audioBuffer.copyFromChannel(
-					chunkData.subarray(channel * framesToCopy, channel * framesToCopy + framesToCopy),
+					chunkData.subarray(channel * framesToCopy, (channel + 1) * framesToCopy),
 					channel,
 					currentRelativeFrame,
 				);

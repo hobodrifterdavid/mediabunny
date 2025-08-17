@@ -1334,16 +1334,17 @@ export class AudioBufferSource extends AudioSource {
 	 * @returns A Promise that resolves once the output is ready to receive more samples. You should await this Promise
 	 * to respect writer and encoder backpressure.
 	 */
-	add(audioBuffer: AudioBuffer) {
+	async add(audioBuffer: AudioBuffer) {
 		if (!(audioBuffer instanceof AudioBuffer)) {
 			throw new TypeError('audioBuffer must be an AudioBuffer.');
 		}
 
-		const audioSamples = AudioSample.fromAudioBuffer(audioBuffer, this._accumulatedTime);
-		const promises = audioSamples.map(sample => this._encoder.add(sample, true));
-
+		const iterator = AudioSample._fromAudioBuffer(audioBuffer, this._accumulatedTime);
 		this._accumulatedTime += audioBuffer.duration;
-		return Promise.all(promises);
+
+		for (const audioSample of iterator) {
+			await this._encoder.add(audioSample, true);
+		}
 	}
 
 	/** @internal */
@@ -1466,10 +1467,10 @@ export class MediaStreamAudioTrackSource extends AudioSource {
 			let totalDuration = 0;
 
 			this._scriptProcessorNode.onaudioprocess = (event) => {
-				const audioSamples = AudioSample.fromAudioBuffer(event.inputBuffer, totalDuration);
+				const iterator = AudioSample._fromAudioBuffer(event.inputBuffer, totalDuration);
 				totalDuration += event.inputBuffer.duration;
 
-				for (const audioSample of audioSamples) {
+				for (const audioSample of iterator) {
 					if (!audioReceived) {
 						audioReceived = true;
 

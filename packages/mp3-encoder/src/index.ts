@@ -7,7 +7,7 @@
  */
 
 import { CustomAudioEncoder, AudioCodec, AudioSample, EncodedPacket, registerEncoder } from 'mediabunny';
-import { FRAME_HEADER_SIZE, readFrameHeader } from '../../../shared/mp3-misc';
+import { FRAME_HEADER_SIZE, readFrameHeader, SAMPLING_RATES } from '../../../shared/mp3-misc';
 import type { WorkerCommand, WorkerResponse, WorkerResponseData } from './shared';
 // @ts-expect-error An esbuild plugin handles this, TypeScript doesn't need to understand
 import createWorker from './encode.worker';
@@ -28,7 +28,7 @@ class Mp3Encoder extends CustomAudioEncoder {
 	static override supports(codec: AudioCodec, config: AudioDecoderConfig): boolean {
 		return codec === 'mp3'
 			&& (config.numberOfChannels === 1 || config.numberOfChannels === 2)
-			&& (config.sampleRate === 32000 || config.sampleRate === 44100 || config.sampleRate === 48000);
+			&& Object.values(SAMPLING_RATES).some(x => x.includes(config.sampleRate));
 	}
 
 	async init() {
