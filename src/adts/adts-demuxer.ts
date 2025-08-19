@@ -160,7 +160,42 @@ class AdtsAudioTrackBacking implements InputAudioTrackBacking {
 		return UNDETERMINED_LANGUAGE;
 	}
 
+	getLanguageBCP47() {
+		// ADTS files don't have language metadata
+		return null;
+	}
+
+	getName() {
+		// ADTS files don't have track names in metadata
+		return null;
+	}
+
+	isDefault() {
+		return true; // Single track is always default
+	}
+
+	isForced() {
+		return false;
+	}
+
+	getDefaultDuration() {
+		// AAC frame duration is fixed at 1024 samples
+		return null;
+	}
+
+	getCodecDelay() {
+		return 0;
+	}
+
+	getSeekPreRoll() {
+		return 0;
+	}
+
 	getCodec(): AudioCodec {
+		return 'aac';
+	}
+
+	getCodecId() {
 		return 'aac';
 	}
 
@@ -180,6 +215,11 @@ class AdtsAudioTrackBacking implements InputAudioTrackBacking {
 		assert(sampleRate !== undefined);
 
 		return sampleRate;
+	}
+
+	getBitDepth() {
+		// AAC is a lossy codec, bit depth not applicable
+		return null;
 	}
 
 	async getDecoderConfig(): Promise<AudioDecoderConfig> {
