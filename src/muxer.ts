@@ -69,11 +69,31 @@ export abstract class Muxer {
 			throw new Error(`Timestamps must be non-negative (got ${timestampInSeconds}s).`);
 		}
 
+		// Handle potential timestamp wraparound or reset (similar to FFmpeg)
+		// If we detect a large backwards jump at a keyframe, treat it as a reset
+		const WRAPAROUND_THRESHOLD = 3600; // 1 hour threshold for detecting potential wraparound
+		
 		if (isKeyFrame) {
+			const timeDiff = timestampInfo.maxTimestamp - timestampInSeconds;
+			
+			// If there's a large backwards jump at a keyframe, allow it (potential wraparound or reset)
+			if (timeDiff > WRAPAROUND_THRESHOLD) {
+				console.warn(
+					`Large timestamp jump detected at keyframe: ${timestampInfo.maxTimestamp}s -> ${timestampInSeconds}s. ` +
+					`Treating as timestamp reset/wraparound.`
+				);
+				// Reset the timestamp tracking for this new segment
+				timestampInfo.maxTimestamp = timestampInSeconds;
+				timestampInfo.maxTimestampBeforeLastKeyFrame = timestampInSeconds;
+				return timestampInSeconds;
+			}
+			
 			timestampInfo.maxTimestampBeforeLastKeyFrame = timestampInfo.maxTimestamp;
 		}
 
-		if (timestampInSeconds < timestampInfo.maxTimestampBeforeLastKeyFrame) {
+		// For non-keyframes or small jumps, maintain the original validation
+		// but only within the current "run" (between keyframes)
+		if (!isKeyFrame && timestampInSeconds < timestampInfo.maxTimestampBeforeLastKeyFrame) {
 			throw new Error(
 				`Timestamps cannot be smaller than the highest timestamp of the previous run (a run begins with a`
 				+ ` key frame and ends right before the next key frame). Got ${timestampInSeconds}s, but highest`
