@@ -245,3 +245,24 @@ type WavOutputFormatOptions = {
 	When enabled, an RF64 file be written, allowing for file sizes to exceed 4 GiB, which is otherwise not possible for regular WAVE files.
 - `onHeader`\
 	Will be called once the file header is written. The header consists of the RIFF header, the format chunk, and the start of the data chunk (with a placeholder size of 0).
+
+## ADTS
+
+This output format creates ADTS (.aac) files.
+```ts
+import { Output, AdtsOutputFormat } from 'mediabunny';	
+
+const output = new Output({
+	format: new AdtsOutputFormat(options),
+	// ...
+});
+```
+
+The following options are available:
+```ts
+type AdtsOutputFormatOptions = {
+	onFrame?: (data: Uint8Array, position: number) => unknown;
+};
+```
+- `onFrame`\
+	Will be called for each ADTS frame that is written.

@@ -19,6 +19,8 @@ import { OggDemuxer } from './ogg/ogg-demuxer';
 import { OggReader } from './ogg/ogg-reader';
 import { RiffReader } from './wave/riff-reader';
 import { WaveDemuxer } from './wave/wave-demuxer';
+import { AdtsReader, MAX_FRAME_HEADER_SIZE } from './adts/adts-reader';
+import { AdtsDemuxer } from './adts/adts-demuxer';
 
 /**
  * Base class representing an input media file format.
@@ -358,6 +360,54 @@ export class OggInputFormat extends InputFormat {
 }
 
 /**
+ * ADTS file format.
+ * @public
+ */
+export class AdtsInputFormat extends InputFormat {
+	/** @internal */
+	async _canReadInput(input: Input) {
+		const sourceSize = await input._mainReader.source.getSize();
+		if (sourceSize < MAX_FRAME_HEADER_SIZE) {
+			return false;
+		}
+
+		const adtsReader = new AdtsReader(input._mainReader);
+		const firstHeader = adtsReader.readFrameHeader();
+		if (!firstHeader) {
+			return false;
+		}
+
+		if (sourceSize < firstHeader.frameLength + MAX_FRAME_HEADER_SIZE) {
+			return false;
+		}
+
+		adtsReader.pos = firstHeader.frameLength;
+		await adtsReader.reader.loadRange(adtsReader.pos, adtsReader.pos + MAX_FRAME_HEADER_SIZE);
+		const secondHeader = adtsReader.readFrameHeader();
+		if (!secondHeader) {
+			return false;
+		}
+
+		return firstHeader.objectType === secondHeader.objectType
+			&& firstHeader.samplingFrequencyIndex === secondHeader.samplingFrequencyIndex
+			&& firstHeader.channelConfiguration === secondHeader.channelConfiguration;
+	}
+
+	/** @internal */
+	_createDemuxer(input: Input) {
+		return new AdtsDemuxer(input);
+	}
+
+	get name() {
+		return 'ADTS';
+	}
+
+	get mimeType() {
+		return 'audio/aac';
+	}
+}
+
+/**
  * MP4 input format singleton.
  * @public
  */
@@ -392,10 +442,15 @@ export const WAVE = new WaveInputFormat();
  * @public
  */
 export const OGG = new OggInputFormat();
+/**
+ * ADTS input format singleton.
+ * @public
+ */
+export const ADTS = new AdtsInputFormat();
 
 /**
  * List of all input format singletons. If you don't need to support all input formats, you should specify the
  * formats individually for better tree shaking.
  * @public
  */
-export const ALL_FORMATS: InputFormat[] = [MP4, QTFF, MATROSKA, WEBM, WAVE, OGG, MP3];
+export const ALL_FORMATS: InputFormat[] = [MP4, QTFF, MATROSKA, WEBM, WAVE, OGG, MP3, ADTS];

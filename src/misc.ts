@@ -73,6 +73,22 @@ export class Bitstream {
 		return result;
 	}
 
+	writeBits(n: number, value: number) {
+		const end = this.pos + n;
+
+		for (let i = this.pos; i < end; i++) {
+			const byteIndex = Math.floor(i / 8);
+			let byte = this.bytes[byteIndex]!;
+			const bitIndex = 0b111 - (i & 0b111);
+
+			byte &= ~(1 << bitIndex);
+			byte |= ((value & (1 << (end - i - 1))) >> (end - i - 1)) << bitIndex;
+			this.bytes[byteIndex] = byte;
+		}
+
+		this.pos = end;
+	};
+
 	readAlignedByte() {
 		// Ensure we're byte-aligned
 		if (this.pos % 8 !== 0) {

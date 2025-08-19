@@ -587,7 +587,22 @@ export const extractAudioCodecString = (trackInfo: {
 	throw new TypeError(`Unhandled codec '${codec}'.`);
 };
 
-export const parseAacAudioSpecificConfig = (bytes: Uint8Array | null) => {
+export type AacAudioSpecificConfig = {
+	objectType: number;
+	frequencyIndex: number;
+	sampleRate: number | null;
+	channelConfiguration: number;
+	numberOfChannels: number | null;
+};
+
+export const aacFrequencyTable = [
+	96000, 88200, 64000, 48000, 44100, 32000,
+	24000, 22050, 16000, 12000, 11025, 8000, 7350,
+];
+
+export const aacChannelMap = [-1, 1, 2, 3, 4, 5, 6, 8];
+
+export const parseAacAudioSpecificConfig = (bytes: Uint8Array | null): AacAudioSpecificConfig => {
 	if (!bytes || bytes.byteLength < 2) {
 		throw new TypeError('AAC description must be at least 2 bytes long.');
 	}
@@ -604,28 +619,15 @@ export const parseAacAudioSpecificConfig = (bytes: Uint8Array | null) => {
 	if (frequencyIndex === 15) {
 		sampleRate = bitstream.readBits(24);
 	} else {
-		const freqTable = [
-			96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050,
-			16000, 12000, 11025, 8000, 7350,
-		];
-		if (frequencyIndex < freqTable.length) {
-			sampleRate = freqTable[frequencyIndex]!;
+		if (frequencyIndex < aacFrequencyTable.length) {
+			sampleRate = aacFrequencyTable[frequencyIndex]!;
 		}
 	}
 
 	const channelConfiguration = bitstream.readBits(4);
 	let numberOfChannels: number | null = null;
 	if (channelConfiguration >= 1 && channelConfiguration <= 7) {
-		const channelMap = {
-			1: 1,
-			2: 2,
-			3: 3,
-			4: 4,
-			5: 5,
-			6: 6,
-			7: 8,
-		};
-		numberOfChannels = channelMap[channelConfiguration as keyof typeof channelMap];
+		numberOfChannels = aacChannelMap[channelConfiguration]!;
 	}
 
 	return {

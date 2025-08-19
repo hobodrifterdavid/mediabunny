@@ -6,6 +6,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+import { AdtsMuxer } from './adts/adts-muxer';
 import {
 	AUDIO_CODECS,
 	AudioCodec,
@@ -699,6 +700,77 @@ export class OggOutputFormat extends OutputFormat {
 		return [
 			...AUDIO_CODECS.filter(codec => ['vorbis', 'opus'].includes(codec)),
 		];
+	}
+
+	get supportsVideoRotationMetadata() {
+		return false;
+	}
+}
+
+/**
+ * ADTS-specific output options.
+ * @public
+ */
+export type AdtsOutputFormatOptions = {
+	/**
+	 * Will be called for each ADTS frame that is written.
+	 *
+	 * @param data - The raw bytes.
+	 * @param position - The byte offset of the data in the file.
+	 */
+	onFrame?: (data: Uint8Array, position: number) => unknown;
+};
+
+/**
+ * ADTS file format.
+ * @public
+ */
+export class AdtsOutputFormat extends OutputFormat {
+	/** @internal */
+	_options: AdtsOutputFormatOptions;
+
+	constructor(options: AdtsOutputFormatOptions = {}) {
+		if (!options || typeof options !== 'object') {
+			throw new TypeError('options must be an object.');
+		}
+		if (options.onFrame !== undefined && typeof options.onFrame !== 'function') {
+			throw new TypeError('options.onFrame, when provided, must be a function.');
+		}
+
+		super();
+
+		this._options = options;
+	}
+
+	/** @internal */
+	_createMuxer(output: Output) {
+		return new AdtsMuxer(output, this);
+	}
+
+	/** @internal */
+	get _name() {
+		return 'ADTS';
+	}
+
+	getSupportedTrackCounts(): TrackCountLimits {
+		return {
+			video: { min: 0, max: 0 },
+			audio: { min: 1, max: 1 },
+			subtitle: { min: 0, max: 0 },
+			total: { min: 1, max: 1 },
+		};
+	}
+
+	get fileExtension() {
+		return '.aac';
+	}
+
+	get mimeType() {
+		return 'audio/aac';
+	}
+
+	getSupportedCodecs(): MediaCodec[] {
+		return ['aac'];
 	}
 
 	get supportsVideoRotationMetadata() {

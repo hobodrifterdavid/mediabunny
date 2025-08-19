@@ -25,10 +25,11 @@ export default tseslint.config(
 				code: 120,
 			}],
 			'curly': ['error', 'multi-line'],
+			'eqeqeq': ['error', 'always', { null: 'ignore' }],
 			'@typescript-eslint/no-empty-object-type': 'off',
 			'@typescript-eslint/require-await': 'off',
 			'@stylistic/yield-star-spacing': ['error', { before: false, after: true }],
-			'@typescript-eslint/no-unsafe-enum-comparison': 'off',	
+			'@typescript-eslint/no-unsafe-enum-comparison': 'off',
 		},
 	},
 	{

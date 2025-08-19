@@ -1097,7 +1097,7 @@ export class IsobmffDemuxer extends Demuxer {
 				const chromaSamplePosition = thirdByte & 0b11;
 
 				// Logic from https://aomediacodec.github.io/av1-spec/av1-spec.pdf
-				const bitDepth = profile == 2 && highBitDepth ? (twelveBit ? 12 : 10) : (highBitDepth ? 10 : 8);
+				const bitDepth = profile === 2 && highBitDepth ? (twelveBit ? 12 : 10) : (highBitDepth ? 10 : 8);
 
 				track.info.av1CodecInfo = {
 					profile,

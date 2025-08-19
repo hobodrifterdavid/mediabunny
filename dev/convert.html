@@ -24,7 +24,9 @@
 			chunked: true,
 			chunkSize: 2**20
 		});
-		const outputFormat = new Mediabunny.Mp3OutputFormat({});
+		const outputFormat = new Mediabunny.AdtsOutputFormat({
+			onFrame: console.log
+		});
 
 		const button = document.createElement('button');
 		button.textContent = 'Cancel';

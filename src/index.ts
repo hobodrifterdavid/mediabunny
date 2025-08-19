@@ -35,6 +35,8 @@ export {
 	WavOutputFormatOptions,
 	OggOutputFormat,
 	OggOutputFormatOptions,
+	AdtsOutputFormat,
+	AdtsOutputFormatOptions,
 	TrackCountLimits,
 	InclusiveIntegerRange,
 } from './output-format';
