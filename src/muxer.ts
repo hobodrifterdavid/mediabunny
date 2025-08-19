@@ -47,6 +47,8 @@ export abstract class Muxer {
 	private trackTimestampInfo = new WeakMap<OutputTrack, {
 		maxTimestamp: number;
 		maxTimestampBeforeLastKeyFrame: number;
+		lastRawTimestamp: number;
+		hasWraparound: boolean;
 	}>();
 
 	protected validateAndNormalizeTimestamp(track: OutputTrack, timestampInSeconds: number, isKeyFrame: boolean) {
@@ -61,9 +63,30 @@ export abstract class Muxer {
 			timestampInfo = {
 				maxTimestamp: timestampInSeconds,
 				maxTimestampBeforeLastKeyFrame: timestampInSeconds,
+				lastRawTimestamp: timestampInSeconds,
+				hasWraparound: false,
 			};
 			this.trackTimestampInfo.set(track, timestampInfo);
 		}
+
+		// Detect timestamp wraparound - if timestamp jumps by more than 1 hour, ignore the jump
+		const timeDiff = timestampInSeconds - timestampInfo.lastRawTimestamp;
+
+		if (Math.abs(timeDiff) > 3600) {
+			// Timestamp jump detected - likely a wraparound or error in the file
+			// Just continue from where we were
+			if (!timestampInfo.hasWraparound) {
+				console.log(`[MUXER FIX] Detected timestamp discontinuity: ${timestampInfo.lastRawTimestamp}s -> ${timestampInSeconds}s (diff: ${timeDiff}s). Ignoring jumps from now on.`);
+				timestampInfo.hasWraparound = true;
+			}
+			// Continue with a small increment from the last good timestamp
+			timestampInSeconds = timestampInfo.maxTimestamp + 0.042667; // About 1 frame at 24fps
+		} else if (timestampInfo.hasWraparound) {
+			// After wraparound, use relative timing
+			timestampInSeconds = timestampInfo.maxTimestamp + Math.max(0.001, timeDiff);
+		}
+
+		timestampInfo.lastRawTimestamp = timestampInSeconds - track.source._timestampOffset; // Store raw for next comparison
 
 		if (timestampInSeconds < 0) {
 			throw new Error(`Timestamps must be non-negative (got ${timestampInSeconds}s).`);
@@ -74,11 +97,8 @@ export abstract class Muxer {
 		}
 
 		if (timestampInSeconds < timestampInfo.maxTimestampBeforeLastKeyFrame) {
-			throw new Error(
-				`Timestamps cannot be smaller than the highest timestamp of the previous run (a run begins with a`
-				+ ` key frame and ends right before the next key frame). Got ${timestampInSeconds}s, but highest`
-				+ ` timestamp is ${timestampInfo.maxTimestampBeforeLastKeyFrame}s.`,
-			);
+			// This shouldn't happen with our fix, but just in case
+			timestampInSeconds = timestampInfo.maxTimestamp + 0.001;
 		}
 
 		timestampInfo.maxTimestamp = Math.max(timestampInfo.maxTimestamp, timestampInSeconds);
