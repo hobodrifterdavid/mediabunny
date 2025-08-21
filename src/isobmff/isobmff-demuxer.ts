@@ -269,6 +269,9 @@ export class IsobmffDemuxer extends Demuxer {
 				);
 				const startPos = this.metadataReader.pos;
 				const boxInfo = this.metadataReader.readBoxHeader();
+				if (!boxInfo) {
+					break;
+				}
 
 				if (boxInfo.name === 'ftyp') {
 					const majorBrand = this.metadataReader.readAscii(4);
@@ -303,14 +306,20 @@ export class IsobmffDemuxer extends Demuxer {
 				const lastWord = this.metadataReader.readU32();
 				const potentialMfraPos = sourceSize - lastWord;
 
-				if (potentialMfraPos >= 0 && potentialMfraPos < sourceSize) {
-					await this.metadataReader.reader.loadRange(potentialMfraPos, sourceSize);
+				if (potentialMfraPos >= 0 && potentialMfraPos <= sourceSize - MAX_BOX_HEADER_SIZE) {
+					// Load the header and a bit more, likely covering the entire box
+					await this.metadataReader.reader.loadRange(potentialMfraPos, potentialMfraPos + 2 ** 16);
 
 					this.metadataReader.pos = potentialMfraPos;
 					const boxInfo = this.metadataReader.readBoxHeader();
 
-					if (boxInfo.name === 'mfra') {
-						// We found the mfra box, allowing for much better random access. Let's parse it:
+					if (boxInfo && boxInfo.name === 'mfra') {
+						// We found the mfra box, allowing for much better random access. Let's parse it.
+
+						await this.metadataReader.reader.loadRange(
+							potentialMfraPos,
+							potentialMfraPos + boxInfo.totalSize,
+						);
 						this.readContiguousBoxes(boxInfo.contentSize);
 					}
 				}
@@ -468,7 +477,7 @@ export class IsobmffDemuxer extends Demuxer {
 		);
 
 		const moofBoxInfo = this.metadataReader.readBoxHeader();
-		assert(moofBoxInfo.name === 'moof');
+		assert(moofBoxInfo?.name === 'moof');
 
 		const contentStart = this.metadataReader.pos;
 		await this.metadataReader.reader.loadRange(contentStart, contentStart + moofBoxInfo.contentSize);
@@ -514,7 +523,7 @@ export class IsobmffDemuxer extends Demuxer {
 
 			let nextFragmentIsFirstFragment = this.metadataReader.pos === 0;
 
-			while (this.metadataReader.pos < startPos) {
+			while (this.metadataReader.pos <= startPos - MIN_BOX_HEADER_SIZE) {
 				if (currentFragment?.nextFragment) {
 					currentFragment = currentFragment.nextFragment;
 					this.metadataReader.pos = currentFragment.moofOffset + currentFragment.moofSize;
@@ -525,6 +534,9 @@ export class IsobmffDemuxer extends Demuxer {
 					);
 					const startPos = this.metadataReader.pos;
 					const boxInfo = this.metadataReader.readBoxHeader();
+					if (!boxInfo) {
+						break;
+					}
 
 					if (boxInfo.name === 'moof') {
 						const index = binarySearchExact(this.fragments, startPos, x => x.moofOffset);
@@ -574,13 +586,21 @@ export class IsobmffDemuxer extends Demuxer {
 		const startIndex = this.metadataReader.pos;
 
 		while (this.metadataReader.pos - startIndex <= totalSize - MIN_BOX_HEADER_SIZE) {
-			this.traverseBox();
+			const foundBox = this.traverseBox();
+
+			if (!foundBox) {
+				break;
+			}
 		}
 	}
 
 	traverseBox() {
 		const startPos = this.metadataReader.pos;
 		const boxInfo = this.metadataReader.readBoxHeader();
+		if (!boxInfo) {
+			return false;
+		}
+
 		const boxEndPos = startPos + boxInfo.totalSize;
 
 		switch (boxInfo.name) {
@@ -847,6 +867,10 @@ export class IsobmffDemuxer extends Demuxer {
 				for (let i = 0; i < entries; i++) {
 					const startPos = this.metadataReader.pos;
 					const sampleBoxInfo = this.metadataReader.readBoxHeader();
+					if (!sampleBoxInfo) {
+						break;
+					}
+
 					const lowercaseBoxName = sampleBoxInfo.name.toLowerCase();
 
 					if (track.info.type === 'video') {
@@ -1949,6 +1973,7 @@ export class IsobmffDemuxer extends Demuxer {
 		}
 
 		this.metadataReader.pos = boxEndPos;
+		return true;
 	}
 }
 
@@ -2409,8 +2434,12 @@ abstract class IsobmffTrackBacking implements InputTrackBacking {
 
 	/** Looks for a packet in the fragments while trying to load as few fragments as possible to retrieve it. */
 	private async performFragmentedLookup(
+		// This function returns the best-matching sample that is currently loaded. Based on this information, we know
+		// which fragments we need to load to find the actual match.
 		getBestMatch: () => { fragmentIndex: number; sampleIndex: number; correctSampleFound: boolean },
+		// The timestamp with which we can search the lookup table
 		searchTimestamp: number,
+		// The timestamp for which we know the correct sample will not come after it
 		latestTimestamp: number,
 		options: PacketRetrievalOptions,
 	): Promise<EncodedPacket | null> {
@@ -2482,6 +2511,9 @@ abstract class IsobmffTrackBacking implements InputTrackBacking {
 				await metadataReader.reader.loadRange(metadataReader.pos, metadataReader.pos + MAX_BOX_HEADER_SIZE);
 				const startPos = metadataReader.pos;
 				const boxInfo = metadataReader.readBoxHeader();
+				if (!boxInfo) {
+					break;
+				}
 
 				if (boxInfo.name === 'moof') {
 					const index = binarySearchExact(demuxer.fragments, startPos, x => x.moofOffset);

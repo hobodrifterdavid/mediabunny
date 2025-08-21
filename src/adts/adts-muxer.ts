@@ -50,6 +50,8 @@ export class AdtsMuxer extends Muxer {
 		const release = await this.mutex.acquire();
 
 		try {
+			this.validateAndNormalizeTimestamp(track, packet.timestamp, packet.type === 'key');
+
 			if (!this.audioSpecificConfig) {
 				validateAudioChunkMetadata(meta);
 

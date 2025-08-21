@@ -19,9 +19,10 @@
 		const videoTrack = await input.getPrimaryVideoTrack();
 		const sink = new Mediabunny.EncodedPacketSink(videoTrack);
 
-		for await (const packet of sink.packets(undefined, undefined, { verifyKeyPackets: false })) {
+		for await (const packet of sink.packets()) {
 			console.log(packet);
-			if (packet.timestamp >= 2.4) break;
+
+			//if (packet.timestamp > 135) break;
 		}
 
 		/*

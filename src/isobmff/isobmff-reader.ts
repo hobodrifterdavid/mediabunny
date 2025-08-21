@@ -132,6 +132,11 @@ export class IsobmffReader {
 			headerSize = 16;
 		}
 
-		return { name, totalSize, headerSize, contentSize: totalSize - headerSize };
+		const contentSize = totalSize - headerSize;
+		if (contentSize < 0) {
+			return null; // Hardly a box is it
+		}
+
+		return { name, totalSize, headerSize, contentSize };
 	}
 }

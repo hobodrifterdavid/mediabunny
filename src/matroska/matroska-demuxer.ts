@@ -59,6 +59,7 @@ import {
 	EBMLId,
 	EBMLReader,
 	LEVEL_0_AND_1_EBML_IDS,
+	LEVEL_1_EBML_IDS,
 	MAX_HEADER_SIZE,
 	MIN_HEADER_SIZE,
 	readVarInt,
@@ -193,6 +194,7 @@ const METADATA_ELEMENTS = [
 	{ id: EBMLId.Tracks, flag: 'tracksSeen' },
 	{ id: EBMLId.Cues, flag: 'cuesSeen' },
 ] as const;
+const MAX_RESYNC_LENGTH = 10 * 2 ** 20; // 10 MiB
 
 export class MatroskaDemuxer extends Demuxer {
 	metadataReader: EBMLReader;
@@ -348,8 +350,22 @@ export class MatroskaDemuxer extends Demuxer {
 
 			const elementStartPos = this.metadataReader.pos;
 			const header = this.metadataReader.readElementHeader();
-			if (!header) {
-				break;
+
+			if (!header || !LEVEL_1_EBML_IDS.includes(header.id)) {
+				// Potential junk. Let's try to resync
+
+				this.metadataReader.pos = elementStartPos;
+				const nextPos = await this.metadataReader.resync(
+					LEVEL_1_EBML_IDS,
+					Math.min(this.currentSegment.elementEndPos, this.metadataReader.pos + MAX_RESYNC_LENGTH),
+				);
+
+				if (nextPos) {
+					this.metadataReader.pos = nextPos;
+					continue;
+				} else {
+					break; // Resync failed
+				}
 			}
 
 			const { id, size } = header;
@@ -368,6 +384,10 @@ export class MatroskaDemuxer extends Demuxer {
 					clusterEncountered = true;
 					this.currentSegment.clusterSeekStartPos = elementStartPos;
 				}
+			}
+
+			if (size !== null) {
+				this.metadataReader.pos = dataStartPos + size;
 			}
 
 			if (this.currentSegment.infoSeen && this.currentSegment.tracksSeen && this.currentSegment.cuesSeen) {
@@ -399,10 +419,15 @@ export class MatroskaDemuxer extends Demuxer {
 			if (size === null) {
 				break;
 			}
+		}
 
-			this.metadataReader.pos = dataStartPos + size;
+		if (!clusterEncountered) {
+			const seekEntry = this.currentSegment.seekEntries.find(entry => entry.id === EBMLId.Cluster);
 
-			if (!clusterEncountered) {
+			if (seekEntry) {
+				// The seek head points us to the first cluster, nice
+				this.currentSegment.clusterSeekStartPos = segmentDataStart + seekEntry.segmentPosition;
+			} else {
 				this.currentSegment.clusterSeekStartPos = this.metadataReader.pos;
 			}
 		}
@@ -753,6 +778,7 @@ export class MatroskaDemuxer extends Demuxer {
 
 		while (reader.pos - startIndex <= totalSize - MIN_HEADER_SIZE) {
 			const foundElement = this.traverseElement(reader);
+
 			if (!foundElement) {
 				break;
 			}
@@ -1754,8 +1780,24 @@ abstract class MatroskaTrackBacking implements InputTrackBacking {
 				await metadataReader.reader.loadRange(metadataReader.pos, metadataReader.pos + MAX_HEADER_SIZE);
 				const elementStartPos = metadataReader.pos;
 				const elementHeader = metadataReader.readElementHeader();
-				if (!elementHeader) {
-					break;
+
+				if (!elementHeader || !LEVEL_1_EBML_IDS.includes(elementHeader.id)) {
+					// There's an element here that shouldn't be here (or Void). Might be garbage. In this case, let's
+					// try and resync to the next valid element.
+
+					metadataReader.pos = elementStartPos;
+
+					const nextPos = await metadataReader.resync(
+						LEVEL_1_EBML_IDS,
+						Math.min(segment.elementEndPos, metadataReader.pos + MAX_RESYNC_LENGTH),
+					);
+
+					if (nextPos) {
+						metadataReader.pos = nextPos;
+						continue;
+					} else {
+						break; // Resync failed
+					}
 				}
 
 				const id = elementHeader.id;

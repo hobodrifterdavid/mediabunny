@@ -92,6 +92,9 @@ const sponsors = {
 		{ image: '/sponsors/diffusionstudio.png', name: 'Diffusion Studio', url: 'https://diffusion.studio/' },
 		{ image: '/sponsors/kino.jpg', name: 'Kino', url: 'https://kino.ai/' },
 	],
+	bronze: [
+		{ image: '/sponsors/rve.svg', name: 'React Video Editor', url: 'https://www.reactvideoeditor.com/' },
+	],
 	individual: [
 		{ image: 'https://avatars.githubusercontent.com/u/84167135', name: 'Memenome', url: 'https://github.com/memenome' },
 		{ image: 'https://avatars.githubusercontent.com/u/5913254', name: 'Brandon McConnell', url: 'https://github.com/brandonmcconnell' },
@@ -336,8 +339,17 @@ await conversion.execute();
 			</a>
 		</div>
 	</template>
+	<template v-if="sponsors.bronze.length > 0">
+		<h3 class="!text-xl">Bronze sponsors</h3>
+		<div class="flex flex-wrap mt-1 justify-center gap-1">
+			<a v-for="sponsor in sponsors.bronze" :href="sponsor.url" target="_blank" class="flex items-center p-2 rounded-full hover:bg-(--vp-c-gray-3) !text-(--vp-c-text-1) !no-underline">
+				<img :src="sponsor.image" class="size-10 rounded-full">
+				<p class="!my-0 !font-medium px-3 text-sm">{{ sponsor.name }}</p>
+			</a>
+		</div>
+	</template>
 	<template v-if="sponsors.individual.length > 0">
-		<h4>Individual sponsors</h4>
+		<h4 class="!text-base">Individual sponsors</h4>
 		<div class="flex flex-wrap mt-1 justify-center">
 			<a v-for="sponsor in sponsors.individual" :href="sponsor.url" target="_blank" class="flex gap-1 w-24 flex-col items-center p-2 rounded-xl hover:bg-(--vp-c-gray-3) !text-(--vp-c-text-1) !no-underline">
 				<img :src="sponsor.image" class="size-8 rounded-full">

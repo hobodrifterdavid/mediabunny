@@ -124,9 +124,8 @@ export const LEVEL_0_EBML_IDS: EBMLId[] = [
 	EBMLId.Segment,
 ];
 
+// All the stuff that can appear in a segment, basically
 export const LEVEL_1_EBML_IDS: EBMLId[] = [
-	EBMLId.EBMLMaxIDLength,
-	EBMLId.EBMLMaxSizeLength,
 	EBMLId.SeekHead,
 	EBMLId.Info,
 	EBMLId.Cluster,
@@ -600,6 +599,28 @@ export class EBMLReader {
 			assertDefinedSize(elementHeader.size);
 
 			this.pos += elementHeader.size;
+		}
+
+		return null;
+	}
+
+	/** Searches for the next occurrence of an element ID using a naive byte-wise search. */
+	async resync(ids: EBMLId[], until: number) {
+		const loadChunkSize = 2 ** 20; // 1 MiB
+		const idsSet = new Set(ids);
+
+		while (this.pos <= until - MIN_HEADER_SIZE) {
+			if (!this.reader.rangeIsLoaded(this.pos, Math.min(this.pos + MAX_HEADER_SIZE, until))) {
+				await this.reader.loadRange(this.pos, Math.min(this.pos + loadChunkSize, until));
+			}
+
+			const elementStartPos = this.pos;
+			const elementId = this.readElementId();
+			if (elementId !== null && idsSet.has(elementId)) {
+				return elementStartPos;
+			}
+
+			this.pos = elementStartPos + 1;
 		}
 
 		return null;
