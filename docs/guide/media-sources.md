@@ -47,9 +47,13 @@ All video sources that handle encoding internally require you to specify a `Vide
 type VideoEncodingConfig = {
 	codec: VideoCodec;
 	bitrate: number | Quality;
+	bitrateMode?: 'constant' | 'variable';
 	latencyMode?: 'quality' | 'realtime';
 	keyFrameInterval?: number;
 	fullCodecString?: string;
+	hardwareAcceleration?: 'no-preference' | 'prefer-hardware' | 'prefer-software';
+	scalabilityMode?: string;
+	contentHint?: string;
 
 	onEncodedPacket?: (
 		packet: EncodedPacket,
@@ -62,9 +66,13 @@ type VideoEncodingConfig = {
 ```
 - `codec`: The [video codec](./supported-formats-and-codecs#video-codecs) used for encoding.
 - `bitrate`: The target number of bits per second. Alternatively, this can be a [subjective quality](#subjective-qualities).
+- `bitrateMode`: Can be used to control constant vs. variable bitrate.
 - `latencyMode`: The latency mode as specified by the WebCodecs API. Browsers default to `quality`. Media stream-driven video sources will automatically use the `realtime` setting.
 - `keyFrameInterval`: The maximum interval in seconds between two adjacent key frames. Defaults to 5 seconds. More frequent key frames improve seeking behavior but increase file size. When using multiple video tracks, this value should be set to the same value for all tracks.
 - `fullCodecString`: Allows you to optionally specify the full codec string used by the video encoder, as specified in the [WebCodecs Codec Registry](https://www.w3.org/TR/webcodecs-codec-registry/). For example, you may set it to `'avc1.42001f'` when using AVC. Keep in mind that the codec string must still match the codec specified in `codec`. If you don't set this field, a codec string will be generated automatically.
+- `hardwareAcceleration`: A hint that configures the hardware acceleration method of this codec. This is best left on `'no-preference'`.
+- `scalabilityMode`: An encoding scalability mode identifier as defined by [WebRTC-SVC](https://w3c.github.io/webrtc-svc/#scalabilitymodes*).
+- `contentHint`: An encoding video content hint as defined by [mst-content-hint](https://w3c.github.io/mst-content-hint/#video-content-hints).
 - `onEncodedPacket`: Called for each successfully encoded packet. Useful for determining encoding progress.
 - `onEncoderConfig`: Called when the internal encoder config, as used by the WebCodecs API, is created. You can use this to introspect the full codec string.
 
@@ -75,6 +83,7 @@ All audio sources that handle encoding internally require you to specify an `Aud
 type AudioEncodingConfig = {
 	codec: AudioCodec;
 	bitrate?: number | Quality;
+	bitrateMode?: 'constant' | 'variable';
 	fullCodecString?: string;
 
 	onEncodedPacket?: (
@@ -88,6 +97,7 @@ type AudioEncodingConfig = {
 ```
 - `codec`: The [audio codec](./supported-formats-and-codecs#audio-codecs) used for encoding. Can be omitted for uncompressed PCM codecs.
 - `bitrate`: The target number of bits per second. Alternatively, this can be a [subjective quality](#subjective-qualities).
+- `bitrateMode`: Can be used to control constant vs. variable bitrate.
 - `fullCodecString`: Allows you to optionally specify the full codec string used by the audio encoder, as specified in the [WebCodecs Codec Registry](https://www.w3.org/TR/webcodecs-codec-registry/). For example, you may set it to `'mp4a.40.2'` when using AAC. Keep in mind that the codec string must still match the codec specified in `codec`. If you don't set this field, a codec string will be generated automatically.
 - `onEncodedPacket`: Called for each successfully encoded packet. Useful for determining encoding progress.	
 - `onEncoderConfig`: Called when the internal encoder config, as used by the WebCodecs API, is created. You can use this to introspect the full codec string.

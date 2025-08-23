@@ -2551,15 +2551,10 @@ abstract class IsobmffTrackBacking implements InputTrackBacking {
 				metadataReader.pos = startPos + boxInfo.totalSize;
 			}
 
-			let result: EncodedPacket | null = null;
 			const bestFragment = bestFragmentIndex !== -1 ? this.internalTrack.fragments[bestFragmentIndex]! : null;
-			if (bestFragment) {
-				// If we finished looping but didn't find a perfect match, still return the best match we found
-				result = await this.fetchPacketInFragment(bestFragment, bestSampleIndex, options);
-			}
 
 			// Catch faulty lookup table entries
-			if (!result && lookupEntry && (!bestFragment || bestFragment.moofOffset < lookupEntry.moofOffset)) {
+			if (lookupEntry && (!bestFragment || bestFragment.moofOffset < lookupEntry.moofOffset)) {
 				// The lookup table entry lied to us! We found a lookup entry but no fragment there that satisfied
 				// the match. In this case, let's search again but using the lookup entry before that.
 				const previousLookupEntry = this.internalTrack.fragmentLookupTable![lookupEntryIndex - 1];
@@ -2567,7 +2562,12 @@ abstract class IsobmffTrackBacking implements InputTrackBacking {
 				return this.performFragmentedLookup(getBestMatch, newSearchTimestamp, latestTimestamp, options);
 			}
 
-			return result;
+			if (bestFragment) {
+				// If we finished looping but didn't find a perfect match, still return the best match we found
+				return this.fetchPacketInFragment(bestFragment, bestSampleIndex, options);
+			}
+
+			return null;
 		} finally {
 			release();
 		}

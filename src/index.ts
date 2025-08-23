@@ -41,8 +41,6 @@ export {
 	InclusiveIntegerRange,
 } from './output-format';
 export {
-	VideoEncodingConfig,
-	AudioEncodingConfig,
 	MediaSource,
 	VideoSource,
 	EncodedVideoPacketSource,
@@ -73,6 +71,12 @@ export {
 	QUALITY_MEDIUM,
 	QUALITY_HIGH,
 	QUALITY_VERY_HIGH,
+} from './codec';
+export {
+	VideoEncodingConfig,
+	VideoEncodingAdditionalOptions,
+	AudioEncodingConfig,
+	AudioEncodingAdditionalOptions,
 	canEncode,
 	canEncodeVideo,
 	canEncodeAudio,
@@ -84,7 +88,7 @@ export {
 	getFirstEncodableVideoCodec,
 	getFirstEncodableAudioCodec,
 	getFirstEncodableSubtitleCodec,
-} from './codec';
+} from './encode';
 export { Target, BufferTarget, StreamTarget, StreamTargetChunk, StreamTargetOptions } from './target';
 export { Rotation, AnyIterable, SetRequired, MaybePromise } from './misc';
 export {

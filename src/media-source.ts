@@ -9,15 +9,9 @@
 import {
 	AUDIO_CODECS,
 	AudioCodec,
-	buildAudioCodecString,
-	buildVideoCodecString,
-	getAudioEncoderConfigExtension,
-	getVideoEncoderConfigExtension,
-	inferCodecFromCodecString,
 	parsePcmCodec,
 	PCM_AUDIO_CODECS,
 	PcmAudioCodec,
-	Quality,
 	SUBTITLE_CODECS,
 	SubtitleCodec,
 	VIDEO_CODECS,
@@ -36,6 +30,14 @@ import {
 } from './custom-coder';
 import { EncodedPacket } from './packet';
 import { AudioSample, VideoSample } from './sample';
+import {
+	AudioEncodingConfig,
+	buildAudioEncoderConfig,
+	buildVideoEncoderConfig,
+	validateAudioEncodingConfig,
+	validateVideoEncodingConfig,
+	VideoEncodingConfig,
+} from './encode';
 
 /**
  * Base class for media sources. Media sources are used to add media samples to an output file.
@@ -183,74 +185,6 @@ export class EncodedVideoPacketSource extends VideoSource {
 	}
 }
 
-/**
- * Configuration object that controls video encoding. Can be used to set codec, quality, and more.
- * @public
- */
-export type VideoEncodingConfig = {
-	/** The video codec that should be used for encoding the video samples (frames). */
-	codec: VideoCodec;
-	/**
-	 * The target bitrate for the encoded video, in bits per second. Alternatively, a subjective Quality can
-	 * be provided.
-	 */
-	bitrate: number | Quality;
-	/** The latency mode used by the encoder; controls the performance-quality tradeoff. */
-	latencyMode?: VideoEncoderConfig['latencyMode'];
-	/**
-	 * The interval, in seconds, of how often frames are encoded as a key frame. The default is 5 seconds. Frequent key
-	 * frames improve seeking behavior but increase file size. When using multiple video tracks, you should give them
-	 * all the same key frame interval.
-	 */
-	keyFrameInterval?: number;
-	/**
-	 * The full codec string as specified in the WebCodecs Codec Registry. This string must match the codec
-	 * specified in `codec`. When not set, a fitting codec string will be constructed automatically by the library.
-	 */
-	fullCodecString?: string;
-
-	/** Called for each successfully encoded packet. Both the packet and the encoding metadata are passed. */
-	onEncodedPacket?: (packet: EncodedPacket, meta: EncodedVideoChunkMetadata | undefined) => unknown;
-	/** Called when the internal encoder config, as used by the WebCodecs API, is created. */
-	onEncoderConfig?: (config: VideoEncoderConfig) => unknown;
-};
-
-const validateVideoEncodingConfig = (config: VideoEncodingConfig) => {
-	if (!config || typeof config !== 'object') {
-		throw new TypeError('Encoding config must be an object.');
-	}
-	if (!VIDEO_CODECS.includes(config.codec)) {
-		throw new TypeError(`Invalid video codec '${config.codec}'. Must be one of: ${VIDEO_CODECS.join(', ')}.`);
-	}
-	if (!(config.bitrate instanceof Quality) && (!Number.isInteger(config.bitrate) || config.bitrate <= 0)) {
-		throw new TypeError('config.bitrate must be a positive integer or a quality.');
-	}
-	if (config.latencyMode !== undefined && !['quality', 'realtime'].includes(config.latencyMode)) {
-		throw new TypeError('config.latencyMode, when provided, must be \'quality\' or \'realtime\'.');
-	}
-	if (
-		config.keyFrameInterval !== undefined
-		&& (!Number.isFinite(config.keyFrameInterval) || config.keyFrameInterval < 0)
-	) {
-		throw new TypeError('config.keyFrameInterval, when provided, must be a non-negative number.');
-	}
-	if (config.fullCodecString !== undefined && typeof config.fullCodecString !== 'string') {
-		throw new TypeError('config.fullCodecString, when provided, must be a string.');
-	}
-	if (config.fullCodecString !== undefined && inferCodecFromCodecString(config.fullCodecString) !== config.codec) {
-		throw new TypeError(
-			`config.fullCodecString, when provided, must be a string that matches the specified codec`
-			+ ` (${config.codec}).`,
-		);
-	}
-	if (config.onEncodedPacket !== undefined && typeof config.onEncodedPacket !== 'function') {
-		throw new TypeError('config.onEncodedChunk, when provided, must be a function.');
-	}
-	if (config.onEncoderConfig !== undefined && typeof config.onEncoderConfig !== 'function') {
-		throw new TypeError('config.onEncoderConfig, when provided, must be a function.');
-	}
-};
-
 class VideoEncoderWrapper {
 	private ensureEncoderPromise: Promise<void> | null = null;
 	private encoderInitialized = false;
@@ -370,26 +304,12 @@ class VideoEncoderWrapper {
 		}
 
 		return this.ensureEncoderPromise = (async () => {
-			const width = videoSample.codedWidth;
-			const height = videoSample.codedHeight;
-			const bitrate = this.encodingConfig.bitrate instanceof Quality
-				? this.encodingConfig.bitrate._toVideoBitrate(this.encodingConfig.codec, width, height)
-				: this.encodingConfig.bitrate;
-
-			const encoderConfig: VideoEncoderConfig = {
-				codec: this.encodingConfig.fullCodecString ?? buildVideoCodecString(
-					this.encodingConfig.codec,
-					width,
-					height,
-					bitrate,
-				),
-				width,
-				height,
-				bitrate,
+			const encoderConfig = buildVideoEncoderConfig({
+				width: videoSample.codedWidth,
+				height: videoSample.codedHeight,
+				...this.encodingConfig,
 				framerate: this.source._connectedTrack?.metadata.frameRate,
-				latencyMode: this.encodingConfig.latencyMode,
-				...getVideoEncoderConfigExtension(this.encodingConfig.codec),
-			};
+			});
 			this.encodingConfig.onEncoderConfig?.(encoderConfig);
 
 			const MatchingCustomEncoder = customVideoEncoders.find(x => x.supports(
@@ -427,8 +347,9 @@ class VideoEncoderWrapper {
 				if (!support.supported) {
 					throw new Error(
 						`This specific encoder configuration (${encoderConfig.codec}, ${encoderConfig.bitrate} bps,`
-						+ ` ${encoderConfig.width}x${encoderConfig.height}) is not supported by this browser. Consider`
-						+ ` using another codec or changing your video parameters.`,
+						+ ` ${encoderConfig.width}x${encoderConfig.height}, hardware acceleration:`
+						+ ` ${encoderConfig.hardwareAcceleration ?? 'no-preference'}) is not supported by this browser.`
+						+ ` Consider using another codec or changing your video parameters.`,
 					);
 				}
 
@@ -813,67 +734,6 @@ export class EncodedAudioPacketSource extends AudioSource {
 	}
 }
 
-/**
- * Configuration object that controls audio encoding. Can be used to set codec, quality, and more.
- * @public
- */
-export type AudioEncodingConfig = {
-	/** The audio codec that should be used for encoding the audio samples. */
-	codec: AudioCodec;
-	/**
-	 * The target bitrate for the encoded audio, in bits per second. Alternatively, a subjective Quality can
-	 * be provided. Required for compressed audio codecs, unused for PCM codecs.
-	 */
-	bitrate?: number | Quality;
-	/**
-	 * The full codec string as specified in the WebCodecs Codec Registry. This string must match the codec
-	 * specified in `codec`. When not set, a fitting codec string will be constructed automatically by the library.
-	 */
-	fullCodecString?: string;
-
-	/** Called for each successfully encoded packet. Both the packet and the encoding metadata are passed. */
-	onEncodedPacket?: (packet: EncodedPacket, meta: EncodedAudioChunkMetadata | undefined) => unknown;
-	/** Called when the internal encoder config, as used by the WebCodecs API, is created. */
-	onEncoderConfig?: (config: AudioEncoderConfig) => unknown;
-};
-
-const validateAudioEncodingConfig = (config: AudioEncodingConfig) => {
-	if (!config || typeof config !== 'object') {
-		throw new TypeError('Encoding config must be an object.');
-	}
-	if (!AUDIO_CODECS.includes(config.codec)) {
-		throw new TypeError(`Invalid audio codec '${config.codec}'. Must be one of: ${AUDIO_CODECS.join(', ')}.`);
-	}
-	if (
-		config.bitrate === undefined
-		&& (!(PCM_AUDIO_CODECS as readonly string[]).includes(config.codec) || config.codec === 'flac')
-	) {
-		throw new TypeError('config.bitrate must be provided for compressed audio codecs.');
-	}
-	if (
-		config.bitrate !== undefined
-		&& !(config.bitrate instanceof Quality)
-		&& (!Number.isInteger(config.bitrate) || config.bitrate <= 0)
-	) {
-		throw new TypeError('config.bitrate, when provided, must be a positive integer or a quality.');
-	}
-	if (config.fullCodecString !== undefined && typeof config.fullCodecString !== 'string') {
-		throw new TypeError('config.fullCodecString, when provided, must be a string.');
-	}
-	if (config.fullCodecString !== undefined && inferCodecFromCodecString(config.fullCodecString) !== config.codec) {
-		throw new TypeError(
-			`config.fullCodecString, when provided, must be a string that matches the specified codec`
-			+ ` (${config.codec}).`,
-		);
-	}
-	if (config.onEncodedPacket !== undefined && typeof config.onEncodedPacket !== 'function') {
-		throw new TypeError('config.onEncodedChunk, when provided, must be a function.');
-	}
-	if (config.onEncoderConfig !== undefined && typeof config.onEncoderConfig !== 'function') {
-		throw new TypeError('config.onEncoderConfig, when provided, must be a function.');
-	}
-};
-
 class AudioEncoderWrapper {
 	private ensureEncoderPromise: Promise<void> | null = null;
 	private encoderInitialized = false;
@@ -1061,21 +921,12 @@ class AudioEncoderWrapper {
 
 		return this.ensureEncoderPromise = (async () => {
 			const { numberOfChannels, sampleRate } = audioSample;
-			const bitrate = this.encodingConfig.bitrate instanceof Quality
-				? this.encodingConfig.bitrate._toAudioBitrate(this.encodingConfig.codec)
-				: this.encodingConfig.bitrate;
 
-			const encoderConfig: AudioEncoderConfig = {
-				codec: this.encodingConfig.fullCodecString ?? buildAudioCodecString(
-					this.encodingConfig.codec,
-					numberOfChannels,
-					sampleRate,
-				),
+			const encoderConfig = buildAudioEncoderConfig({
 				numberOfChannels,
 				sampleRate,
-				bitrate,
-				...getAudioEncoderConfigExtension(this.encodingConfig.codec),
-			};
+				...this.encodingConfig,
+			});
 			this.encodingConfig.onEncoderConfig?.(encoderConfig);
 
 			const MatchingCustomEncoder = customAudioEncoders.find(x => x.supports(

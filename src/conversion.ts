@@ -9,14 +9,18 @@
 import {
 	AUDIO_CODECS,
 	AudioCodec,
-	getFirstEncodableVideoCodec,
-	getEncodableAudioCodecs,
 	NON_PCM_AUDIO_CODECS,
 	Quality,
 	QUALITY_HIGH,
 	VIDEO_CODECS,
 	VideoCodec,
 } from './codec';
+import {
+	AudioEncodingConfig,
+	getEncodableAudioCodecs,
+	getFirstEncodableVideoCodec,
+	VideoEncodingConfig,
+} from './encode';
 import { Input } from './input';
 import { InputAudioTrack, InputTrack, InputVideoTrack } from './input-track';
 import {
@@ -26,11 +30,9 @@ import {
 	VideoSampleSink,
 } from './media-sink';
 import {
-	AudioEncodingConfig,
 	AudioSource,
 	EncodedVideoPacketSource,
 	EncodedAudioPacketSource,
-	VideoEncodingConfig,
 	VideoSource,
 	VideoSampleSource,
 	AudioSampleSource,

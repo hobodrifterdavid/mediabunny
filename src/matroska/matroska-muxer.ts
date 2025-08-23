@@ -818,8 +818,8 @@ export class MatroskaMuxer extends Muxer {
 
 		const msDuration = Math.round(1000 * chunk.duration);
 
-		if (msDuration === 0 && !chunk.additions) {
-			// No duration or additions, we can write out a SimpleBlock
+		if (!chunk.additions) {
+			// No additions, we can write out a SimpleBlock
 			view.setUint8(3, Number(chunk.type === 'key') << 7); // Flags (keyframe flag only present for SimpleBlock)
 
 			const simpleBlock = { id: EBMLId.SimpleBlock, data: [

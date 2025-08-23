@@ -191,7 +191,7 @@ export class UrlSource extends Source {
 
 		super();
 
-		this._url = url instanceof URL ? url : new URL(url);
+		this._url = url instanceof URL ? url : new URL(url, location.href);
 		this._options = options;
 	}
 
