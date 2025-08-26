@@ -1050,8 +1050,27 @@ export const validateAudioChunkMetadata = (metadata: EncodedAudioChunkMetadata |
 		&& metadata.decoderConfig.codec !== 'mp4a.6b'
 	) {
 		// AAC-specific validation
-
-		const validStrings = ['mp4a.40.2', 'mp4a.40.02', 'mp4a.40.5', 'mp4a.40.05', 'mp4a.40.29', 'mp4a.67'];
+		// NOTE: WebCodecs currently lists only LC / HE AAC profiles in its registry, but
+		//       MPEG-4 Part-3 defines additional object types that appear in the wild –
+		//       most notably object-type 1 (AAC Main) which yields the codec string
+		//       "mp4a.40.1". Browsers (Chrome/Edge/Firefox) play those files just fine,
+		//       so we accept them here as well to avoid false negatives when remuxing.
+		//       Common object types that cover virtually all consumer content:
+		//         1  → AAC Main   (mp4a.40.1 / 40.01)
+		//         2  → AAC LC     (mp4a.40.2 / 40.02)
+		//         5  → HE-AAC v1  (mp4a.40.5 / 40.05)
+		//         29 → HE-AAC v2  (mp4a.40.29)
+		//         103→ MPEG-2 AAC-LC (mp4a.67)
+		//       Rarer profiles (SSR 6, ER AAC-LD 21, ELD 22 …) exist but show up only in
+		//       niche / professional material.
+		const validStrings = [
+			// AAC Main
+			'mp4a.40.1', 'mp4a.40.01',   // AAC Main
+			'mp4a.40.2', 'mp4a.40.02',   // AAC LC
+			'mp4a.40.5', 'mp4a.40.05',   // HE-AAC v1
+			'mp4a.40.29',                 // HE-AAC v2
+			'mp4a.67',                    // MPEG-2 AAC LC
+		];
 		if (!validStrings.includes(metadata.decoderConfig.codec)) {
 			throw new TypeError(
 				'Audio chunk metadata decoder configuration codec string for AAC must be a valid AAC codec string as'
