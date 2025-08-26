@@ -322,7 +322,8 @@ export class Conversion {
 			| 'max_track_count_of_type_reached'
 			| 'unknown_source_codec'
 			| 'undecodable_source_codec'
-			| 'no_encodable_target_codec';
+			| 'no_encodable_target_codec'
+			| 'unsupported_track_type';
 	}[] = [];
 
 	/** Initializes a new conversion process without starting the conversion. */
@@ -418,7 +419,12 @@ export class Conversion {
 					}
 				}
 			} else {
-				assert(false);
+				// Discard any unsupported track types (e.g., subtitle, data) instead of hard-failing.
+				this.discardedTracks.push({
+					track,
+					reason: 'unsupported_track_type',
+				});
+				continue;
 			}
 
 			if (trackOptions?.discard) {
