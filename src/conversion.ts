@@ -374,20 +374,7 @@ export class Conversion {
 			&& options.trim.start >= options.trim.end) {
 			throw new TypeError('options.trim.start must be less than options.trim.end.');
 		}
-		if (options.tracks !== undefined && (!options.tracks || typeof options.tracks !== 'object')) {
-			throw new TypeError('options.tracks, when provided, must be an object.');
-		}
-		if (
-			options.tracks?.indices !== undefined
-			&& (!Array.isArray(options.tracks.indices)
-				|| !options.tracks.indices.every(i => Number.isInteger(i) && i >= 0))
-		) {
-			throw new TypeError('options.tracks.indices, when provided, must be an array of non-negative integers.');
-		}
-		if (options.tracks?.audioOnly !== undefined && typeof options.tracks.audioOnly !== 'boolean') {
-			throw new TypeError('options.tracks.audioOnly, when provided, must be a boolean.');
-		}
-
+		
 		this._options = options;
 		this.input = options.input;
 		this.output = options.output;
@@ -402,22 +389,8 @@ export class Conversion {
 
 	/** @internal */
 	async _init() {
-		let inputTracks = await this.input.getTracks();
+		const inputTracks = await this.input.getTracks();
 		const outputTrackCounts = this.output.format.getSupportedTrackCounts();
-
-		// Filter tracks based on options
-		if (this._options.tracks) {
-			// First filter by track type if audioOnly is specified
-			if (this._options.tracks.audioOnly) {
-				inputTracks = inputTracks.filter(track => track.type === 'audio');
-			}
-			// Then filter by indices - indices now apply to the filtered list
-			if (this._options.tracks.indices !== undefined) {
-				inputTracks = inputTracks.filter((_, index) =>
-					this._options.tracks!.indices!.includes(index),
-				);
-			}
-		}
 
 		let nVideo = 1;
 		let nAudio = 1;

@@ -532,7 +532,6 @@ export class EBMLReader {
 			strLength += 1;
 		}
 
-		// ASCII/Latin-1 string (for DocType, CodecID, Language)
 		return String.fromCharCode(...new Uint8Array(view.buffer, offset, strLength));
 	}
 

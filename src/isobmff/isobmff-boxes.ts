@@ -1380,8 +1380,6 @@ const audioCodecToBoxName = (codec: AudioCodec, isQuickTime: boolean): string =>
 		}
 	}
 	
-	// This should never happen, but TypeScript needs a return for all paths
-	throw new Error(`Unsupported audio codec: ${codec}`);
 };
 
 const audioCodecToConfigurationBox = (codec: AudioCodec, isQuickTime: boolean) => {

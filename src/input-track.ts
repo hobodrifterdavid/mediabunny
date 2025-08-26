@@ -63,7 +63,6 @@ export abstract class InputTrack {
 	abstract get type(): TrackType;
 	/** The codec of the track's packets. */
 	abstract get codec(): MediaCodec | null;
-
 	/** Returns the full codec parameter string for this track. */
 	abstract getCodecParameterString(): Promise<string | null>;
 	/** Checks if this track's packets can be decoded by the browser. */
@@ -318,8 +317,6 @@ export interface InputAudioTrackBacking extends InputTrackBacking {
 	getCodec(): AudioCodec | null;
 	getNumberOfChannels(): number;
 	getSampleRate(): number;
-	getBitDepth(): number | null;
-
 	getDecoderConfig(): Promise<AudioDecoderConfig | null>;
 }
 
@@ -354,11 +351,6 @@ export class InputAudioTrack extends InputTrack {
 	/** The track's audio sample rate in hertz. */
 	get sampleRate() {
 		return this._backing.getSampleRate();
-	}
-
-	/** The bit depth of audio samples (e.g., 16, 24, 32). Null if not specified or not applicable. */
-	get bitDepth() {
-		return this._backing.getBitDepth();
 	}
 
 	/**

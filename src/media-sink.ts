@@ -218,7 +218,7 @@ export class EncodedPacketSink {
 	 * method will intelligently preload packets based on the speed of the consumer.
 	 *
 	 * @param startPacket - (optional) The packet from which iteration should begin. This packet will also be yielded.
-	 * @param endPacket - (optional) The timestamp at which iteration should end. This packet will _not_ be yielded.
+	 * @param endTimestamp - (optional) The timestamp at which iteration should end. This packet will _not_ be yielded.
 	 */
 	packets(
 		startPacket?: EncodedPacket,

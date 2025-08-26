@@ -145,18 +145,12 @@ type InternalTrack = {
 	cuePoints: CuePoint[];
 
 	isDefault: boolean;
-	isForced: boolean;
-	isEnabled: boolean;
-	isLacing: boolean;
-	codecDelay: number;
-	seekPreRoll: number;
 	inputTrack: InputTrack | null;
 	codecId: string | null;
 	codecPrivate: Uint8Array | null;
 	defaultDuration: number | null;
 	name: string | null;
 	languageCode: string;
-	languageBCP47: string | null;
 	info:
 		| null
 		| {
@@ -1044,39 +1038,6 @@ export class MatroskaDemuxer extends Demuxer {
 				this.currentTrack.isDefault = !!reader.readUnsignedInt(size);
 			}; break;
 
-			case EBMLId.FlagForced: {
-				if (!this.currentTrack) break;
-
-				this.currentTrack.isForced = !!reader.readUnsignedInt(size);
-			}; break;
-
-			case EBMLId.FlagLacing: {
-				if (!this.currentTrack) break;
-
-				this.currentTrack.isLacing = !!reader.readUnsignedInt(size);
-			}; break;
-
-			case EBMLId.DefaultDuration: {
-				if (!this.currentTrack) break;
-
-				// DefaultDuration is in nanoseconds
-				this.currentTrack.defaultDuration = reader.readUnsignedInt(size);
-			}; break;
-
-			case EBMLId.CodecDelay: {
-				if (!this.currentTrack) break;
-
-				// CodecDelay is in nanoseconds
-				this.currentTrack.codecDelay = reader.readUnsignedInt(size);
-			}; break;
-
-			case EBMLId.SeekPreRoll: {
-				if (!this.currentTrack) break;
-
-				// SeekPreRoll is in nanoseconds
-				this.currentTrack.seekPreRoll = reader.readUnsignedInt(size);
-			}; break;
-
 			case EBMLId.CodecID: {
 				if (!this.currentTrack) break;
 
@@ -1369,43 +1330,7 @@ abstract class MatroskaTrackBacking implements InputTrackBacking {
 	}
 
 	getCodec(): MediaCodec | null {
-		return null;
-	}
-
-	getCodecId() {
-		return this.internalTrack.codecId;
-	}
-
-	getLanguageCode() {
-		return this.internalTrack.languageCode;
-	}
-
-	getLanguageBCP47() {
-		return this.internalTrack.languageBCP47;
-	}
-
-	getName() {
-		return this.internalTrack.name;
-	}
-
-	isDefault() {
-		return this.internalTrack.isDefault;
-	}
-
-	isForced() {
-		return this.internalTrack.isForced;
-	}
-
-	getDefaultDuration() {
-		return this.internalTrack.defaultDuration;
-	}
-
-	getCodecDelay() {
-		return this.internalTrack.codecDelay;
-	}
-
-	getSeekPreRoll() {
-		return this.internalTrack.seekPreRoll;
+		throw new Error('Not implemented on base class.');
 	}
 
 	getInternalCodecId() {
@@ -2015,10 +1940,6 @@ class MatroskaAudioTrackBacking extends MatroskaTrackBacking implements InputAud
 
 	getSampleRate() {
 		return this.internalTrack.info.sampleRate;
-	}
-
-	getBitDepth() {
-		return this.internalTrack.info.bitDepth > 0 ? this.internalTrack.info.bitDepth : null;
 	}
 
 	async getDecoderConfig(): Promise<AudioDecoderConfig | null> {
