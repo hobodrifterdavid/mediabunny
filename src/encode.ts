@@ -43,6 +43,19 @@ export type VideoEncodingConfig = {
 	 * all the same key frame interval.
 	 */
 	keyFrameInterval?: number;
+	/**
+	 * Video frames may change size overtime. This field controls the behavior in case this happens.
+	 *
+	 * - 'deny' (default) will throw an error, requiring all frames to have the exact same dimensions.
+	 * - 'passThrough' will allow the change and directly pass the frame to the encoder.
+	 * - 'fill' will stretch the image to fill the entire original box, potentially altering aspect ratio.
+	 * - 'contain' will contain the entire image within the  originalbox while preserving aspect ratio. This may lead to
+	 * letterboxing.
+	 * - 'cover' will scale the image until the entire original box is filled, while preserving aspect ratio.
+	 *
+	 * The "original box" refers to the dimensions of the first encoded frame.
+	 */
+	sizeChangeBehavior?: 'deny' | 'passThrough' | 'fill' | 'contain' | 'cover';
 
 	/** Called for each successfully encoded packet. Both the packet and the encoding metadata are passed. */
 	onEncodedPacket?: (packet: EncodedPacket, meta: EncodedVideoChunkMetadata | undefined) => unknown;
@@ -66,6 +79,7 @@ export const validateVideoEncodingConfig = (config: VideoEncodingConfig) => {
 	) {
 		throw new TypeError('config.keyFrameInterval, when provided, must be a non-negative number.');
 	}
+	// todo here
 	if (config.onEncodedPacket !== undefined && typeof config.onEncodedPacket !== 'function') {
 		throw new TypeError('config.onEncodedChunk, when provided, must be a function.');
 	}

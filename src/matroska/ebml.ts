@@ -7,13 +7,22 @@
  */
 
 import { MediaCodec } from '../codec';
+import { assertNever, textDecoder, textEncoder } from '../misc';
 import { Reader } from '../reader';
 import { Writer } from '../writer';
 
 export interface EBMLElement {
 	id: number;
 	size?: number;
-	data: number | string | Uint8Array | EBMLFloat32 | EBMLFloat64 | EBMLSignedInt | (EBML | null)[];
+	data:
+		| number
+		| string
+		| Uint8Array
+		| EBMLFloat32
+		| EBMLFloat64
+		| EBMLSignedInt
+		| EBMLUnicodeString
+		| (EBML | null)[];
 }
 
 export type EBML = EBMLElement | Uint8Array | (EBML | null)[];
@@ -45,6 +54,10 @@ export class EBMLSignedInt {
 	}
 }
 
+export class EBMLUnicodeString {
+	constructor(public value: string) {}
+}
+
 /** Defines some of the EBML IDs used by Matroska files. */
 export enum EBMLId {
 	EBML = 0x1a45dfa3,
@@ -73,9 +86,9 @@ export enum EBMLId {
 	FlagDefault = 0x88,
 	FlagForced = 0x55aa,
 	FlagLacing = 0x9c,
-	Language = 0x22b59c,
-	LanguageIETF = 0x22b59d,
 	Name = 0x536e,
+	Language = 0x22b59c,
+	LanguageBCP47 = 0x22b59d,
 	CodecID = 0x86,
 	CodecPrivate = 0x63a2,
 	CodecDelay = 0x56aa,
@@ -373,6 +386,12 @@ export class EBMLWriter {
 				const size = data.size ?? measureSignedInt(data.data.value);
 				this.writeVarInt(size);
 				this.writeSignedInt(data.data.value, size);
+			} else if (data.data instanceof EBMLUnicodeString) {
+				const bytes = textEncoder.encode(data.data.value);
+				this.writeVarInt(bytes.length);
+				this.writer.write(bytes);
+			} else {
+				assertNever(data.data);
 			}
 		}
 	}
@@ -517,7 +536,7 @@ export class EBMLReader {
 		return String.fromCharCode(...new Uint8Array(view.buffer, offset, strLength));
 	}
 
-	readUTF8String(length: number) {
+	readUnicodeString(length: number) {
 		const { view, offset } = this.reader.getViewAndOffset(this.pos, this.pos + length);
 		this.pos += length;
 
@@ -527,10 +546,7 @@ export class EBMLReader {
 			strLength += 1;
 		}
 
-		// UTF-8 string (for Name, LanguageBCP47/LanguageIETF)
-		const bytes = new Uint8Array(view.buffer, offset, strLength);
-		const decoder = new TextDecoder('utf-8');
-		return decoder.decode(bytes);
+		return textDecoder.decode(new Uint8Array(view.buffer, offset, strLength));
 	}
 
 	readElementId() {

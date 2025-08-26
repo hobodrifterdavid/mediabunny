@@ -423,11 +423,6 @@ class OggAudioTrackBacking implements InputAudioTrackBacking {
 		return this.bitstream.sampleRate;
 	}
 
-	getBitDepth() {
-		// OGG/Vorbis/Opus are lossy codecs, bit depth not applicable
-		return null;
-	}
-
 	getTimeResolution() {
 		return this.bitstream.sampleRate;
 	}
@@ -436,9 +431,8 @@ class OggAudioTrackBacking implements InputAudioTrackBacking {
 		return this.bitstream.codecInfo.codec;
 	}
 
-	getCodecId() {
-		// OGG uses the codec name directly
-		return this.getCodec();
+	getInternalCodecId() {
+		return null;
 	}
 
 	async getDecoderConfig(): Promise<AudioDecoderConfig | null> {
@@ -452,40 +446,12 @@ class OggAudioTrackBacking implements InputAudioTrackBacking {
 		};
 	}
 
+	getName() {
+		return null;
+	}
+
 	getLanguageCode() {
 		return UNDETERMINED_LANGUAGE;
-	}
-
-	getLanguageBCP47() {
-		// OGG files language would be in Vorbis comments, not currently parsed
-		return null;
-	}
-
-	getName() {
-		// OGG files track names would be in Vorbis comments, not currently parsed
-		return null;
-	}
-
-	isDefault() {
-		return true; // Single track is always default in OGG
-	}
-
-	isForced() {
-		return false;
-	}
-
-	getDefaultDuration() {
-		return null;
-	}
-
-	getCodecDelay() {
-		// Opus has built-in pre-skip, Vorbis has its own delay handling
-		return 0;
-	}
-
-	getSeekPreRoll() {
-		// Opus needs pre-roll, Vorbis doesn't
-		return this.bitstream.codecInfo.codec === 'opus' ? 80000000 : 0; // 80ms in nanoseconds for Opus
 	}
 
 	async getFirstTimestamp() {

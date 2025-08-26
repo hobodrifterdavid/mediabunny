@@ -173,6 +173,7 @@ export const toDataView = (source: AllowSharedBufferSource) => {
 	}
 };
 
+export const textDecoder = new TextDecoder();
 export const textEncoder = new TextEncoder();
 
 const invertObject = <K extends PropertyKey, V extends PropertyKey>(object: Record<K, V>) => {

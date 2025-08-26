@@ -148,15 +148,15 @@ type InternalTrack = {
 	isForced: boolean;
 	isEnabled: boolean;
 	isLacing: boolean;
-	defaultDuration: number | null;
 	codecDelay: number;
 	seekPreRoll: number;
 	inputTrack: InputTrack | null;
 	codecId: string | null;
 	codecPrivate: Uint8Array | null;
+	defaultDuration: number | null;
+	name: string | null;
 	languageCode: string;
 	languageBCP47: string | null;
-	name: string | null;
 	info:
 		| null
 		| {
@@ -850,18 +850,12 @@ export class MatroskaDemuxer extends Demuxer {
 					cuePoints: [],
 
 					isDefault: false,
-									isForced: false,
-				isEnabled: true,
-				isLacing: false,
-				defaultDuration: null,
-				codecDelay: 0,
-				seekPreRoll: 0,
-				inputTrack: null,
-				codecId: null,
-				codecPrivate: null,
-				languageCode: UNDETERMINED_LANGUAGE,
-				languageBCP47: null,
+					inputTrack: null,
+					codecId: null,
+					codecPrivate: null,
+					defaultDuration: null,
 					name: null,
+					languageCode: UNDETERMINED_LANGUAGE,
 					info: null,
 				};
 
@@ -1102,8 +1096,15 @@ export class MatroskaDemuxer extends Demuxer {
 					= this.currentTrack.segment.timestampFactor * reader.readUnsignedInt(size) / 1e9;
 			}; break;
 
+			case EBMLId.Name: {
+				if (!this.currentTrack) break;
+
+				this.currentTrack.name = reader.readUnicodeString(size);
+			}; break;
+
 			case EBMLId.Language: {
 				if (!this.currentTrack) break;
+				if (this.currentTrack.languageCode) break; // LanguageBCP47 was present, which takes precedence
 
 				this.currentTrack.languageCode = reader.readAsciiString(size);
 
@@ -1112,19 +1113,21 @@ export class MatroskaDemuxer extends Demuxer {
 				}
 			}; break;
 
-			case EBMLId.LanguageIETF: {
-				if (!this.currentTrack) break;
-				
-				// LanguageIETF uses BCP 47 language codes (like "en", "en-US", etc.)
-				// Type: string (ASCII) according to RFC 9559
-				this.currentTrack.languageBCP47 = reader.readAsciiString(size);
-			}; break;
-
-			case EBMLId.Name: {
+			case EBMLId.LanguageBCP47: {
 				if (!this.currentTrack) break;
 
-				// Name is UTF-8 encoded according to RFC 9559
-				this.currentTrack.name = reader.readUTF8String(size);
+				const bcp47 = reader.readAsciiString(size);
+				const languageSubtag = bcp47.split('-')[0];
+
+				if (languageSubtag) {
+					// Technically invalid, for now: The language subtag might be a language code from ISO 639-1,
+					// ISO 639-2, ISO 639-3, ISO 639-5 or some other thing (source: Wikipedia). But, `languageCode` is
+					// documented as ISO 639-2. Changing the definition would be a breaking change. This will get
+					// cleaned up in the future by defining languageCode to be BCP 47 instead.
+					this.currentTrack.languageCode = languageSubtag;
+				} else {
+					this.currentTrack.languageCode = UNDETERMINED_LANGUAGE;
+				}
 			}; break;
 
 			case EBMLId.Video: {
@@ -1405,9 +1408,21 @@ abstract class MatroskaTrackBacking implements InputTrackBacking {
 		return this.internalTrack.seekPreRoll;
 	}
 
+	getInternalCodecId() {
+		return this.internalTrack.codecId;
+	}
+
 	async computeDuration() {
 		const lastPacket = await this.getPacket(Infinity, { metadataOnly: true });
 		return (lastPacket?.timestamp ?? 0) + (lastPacket?.duration ?? 0);
+	}
+
+	getName() {
+		return this.internalTrack.name;
+	}
+
+	getLanguageCode() {
+		return this.internalTrack.languageCode;
 	}
 
 	async getFirstTimestamp() {

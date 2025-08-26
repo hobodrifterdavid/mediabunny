@@ -29,6 +29,7 @@ import {
 	EBMLFloat64,
 	EBMLId,
 	EBMLSignedInt,
+	EBMLUnicodeString,
 	EBMLWriter,
 } from './ebml';
 import { buildMatroskaMimeType } from './matroska-misc';
@@ -272,6 +273,9 @@ export class MatroskaMuxer extends Muxer {
 				{ id: EBMLId.CodecID, data: codecId },
 				{ id: EBMLId.CodecDelay, data: 0 },
 				{ id: EBMLId.SeekPreRoll, data: seekPreRollNs },
+				trackData.track.metadata.name !== undefined
+					? { id: EBMLId.Name, data: new EBMLUnicodeString(trackData.track.metadata.name) }
+					: null,
 				(trackData.type === 'video' ? this.videoSpecificTrackInfo(trackData) : null),
 				(trackData.type === 'audio' ? this.audioSpecificTrackInfo(trackData) : null),
 				(trackData.type === 'subtitle' ? this.subtitleSpecificTrackInfo(trackData) : null),

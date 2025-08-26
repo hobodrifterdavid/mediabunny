@@ -141,6 +141,8 @@ If `width` or `height` is used in conjunction with `rotation`, they control the 
 
 If you want to apply max/min constraints to a video's dimensions, check out [track-specific options](#track-specific-options).
 
+In the rare case that the input video changes size over time, the `fit` field can be used to control the size change behavior (see [`VideoEncodingConfig`](./media-sources#video-encoding-config)). When unset, the behavior is `'passThrough'`.
+
 ### Adjusting frame rate
 
 The `frameRate` property can be used to set the frame rate of the output video in Hz. If not specified, the original input frame rate will be used (which may be variable).

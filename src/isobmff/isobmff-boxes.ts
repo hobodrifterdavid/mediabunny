@@ -31,6 +31,7 @@ import {
 import { formatSubtitleTimestamp } from '../subtitles';
 import { Writer } from '../writer';
 import {
+	getTrackMetadata,
 	GLOBAL_TIMESCALE,
 	intoTimescale,
 	IsobmffAudioTrackData,
@@ -378,10 +379,72 @@ export const mvhd = (
  * independent of the other tracks in the movie and carries its own temporal and spatial information. Each Track Box
  * contains its associated Media Box.
  */
-export const trak = (trackData: IsobmffTrackData, creationTime: number) => box('trak', undefined, [
-	tkhd(trackData, creationTime),
-	mdia(trackData, creationTime),
-]);
+export const trak = (trackData: IsobmffTrackData, creationTime: number) => {
+	const trackMetadata = getTrackMetadata(trackData);
+
+	return box('trak', undefined, [
+		tkhd(trackData, creationTime),
+		mdia(trackData, creationTime),
+		trackMetadata.name !== undefined
+			? box('udta', undefined, [
+					box('©nam', [
+						...textEncoder.encode(trackMetadata.name),
+					]),
+				])
+			: null,
+	]);
+};
+
+/*
+const meta = (trackData: IsobmffTrackData) => {
+	const trackMetadata = getTrackMetadata(trackData);
+
+	if (trackData.muxer.isQuickTime) {
+		const keyMap: Record<keyof IsobmffMetadata, string> = {
+			name: 'com.apple.quicktime.title',
+		};
+
+		return box('meta', undefined, [
+			hdlr(false, 'mdta', ''),
+			fullBox('keys', 0, 0, [
+				u32(Object.keys(trackMetadata).length),
+			], Object.keys(trackMetadata).map(key =>
+				box('mdta', [
+					ascii(keyMap[key as keyof IsobmffMetadata]), // Key name
+				]),
+			)),
+			box('ilst', undefined, Object.values(trackMetadata)
+				.map((value, i) => box(u32(i + 1).map(x => String.fromCharCode(x)).join(''), undefined, [
+					data(value),
+				]))),
+		]);
+	} else {
+		const keyMap: Record<keyof IsobmffMetadata, string> = {
+			name: '©nam',
+		};
+
+		return fullBox('meta', 0, 0, undefined, [
+			hdlr(false, 'mdir', ''),
+			box('ilst', undefined, Object.entries(trackMetadata)
+				.map(([key, value]) => box(keyMap[key as keyof IsobmffMetadata], undefined, [
+					data(value),
+				]))),
+		]);
+	}
+};
+
+const data = (value: unknown) => {
+	if (typeof value === 'string') {
+		return box('data', [
+			u32(1), // Type indicator (UTF-8)
+			u32(0), // Locale indicator
+			...textEncoder.encode(value),
+		]);
+	}
+
+	throw new Error('Unhandled data type.');
+};
+*/
 
 /** Track Header Box: Specifies the characteristics of a single track within a movie. */
 export const tkhd = (
@@ -425,7 +488,7 @@ export const tkhd = (
 /** Media Box: Describes and define a track's media type and sample data. */
 export const mdia = (trackData: IsobmffTrackData, creationTime: number) => box('mdia', undefined, [
 	mdhd(trackData, creationTime),
-	hdlr(trackData),
+	hdlr(true, TRACK_TYPE_TO_COMPONENT_SUBTYPE[trackData.type], TRACK_TYPE_TO_HANDLER_NAME[trackData.type]),
 	minf(trackData),
 ]);
 
@@ -471,14 +534,14 @@ const TRACK_TYPE_TO_HANDLER_NAME: Record<IsobmffTrackData['type'], string> = {
 	subtitle: 'MediabunnyTextHandler',
 };
 
-/** Handler Reference Box: Specifies the media handler component that is to be used to interpret the media's data. */
-export const hdlr = (trackData: IsobmffTrackData) => fullBox('hdlr', 0, 0, [
-	ascii('mhlr'), // Component type
-	ascii(TRACK_TYPE_TO_COMPONENT_SUBTYPE[trackData.type]), // Component subtype
+/** Handler Reference Box. */
+export const hdlr = (hasComponentType: boolean, handlerType: string, name: string) => fullBox('hdlr', 0, 0, [
+	hasComponentType ? ascii('mhlr') : u32(0), // Component type
+	ascii(handlerType), // Component subtype
 	u32(0), // Component manufacturer
 	u32(0), // Component flags
 	u32(0), // Component flags mask
-	ascii(TRACK_TYPE_TO_HANDLER_NAME[trackData.type], true), // Component name
+	ascii(name, true), // Component name
 ]);
 
 /**

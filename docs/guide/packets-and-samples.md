@@ -343,6 +343,17 @@ draw(
 ```
 These methods behave like [drawImage](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/drawImage) and paint the video frame at the given position with the given dimensions. This method will automatically draw the frame with the correct rotation based on its `rotation` property.
 
+The `drawWithFit` method can be used to draw the video sample to fill an entire canvas with a specified fitting algorithm:
+```ts
+drawWithFit(
+	context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+	options: {
+		fit: 'fill' | 'contain' | 'cover';
+		rotation?: Rotation; // Overrides the sample's rotation
+	},
+): void;
+```
+
 If you want to draw the raw underlying image to a canvas directly (without respecting the rotation metadata), then you can use the following method:
 ```ts
 videoSample.toCanvasImageSource(); // => VideoFrame | OffscreenCanvas;

@@ -76,17 +76,9 @@ await input.getPrimaryVideoTrack(); // => InputVideoTrack | null
 await input.getPrimaryAudioTrack(); // => InputAudioTrack | null
 ```
 
-### Subtitle tracks
-
-You can also retrieve subtitle tracks from the input file:
-
-```ts
-// Get all subtitle tracks:
-await input.getSubtitleTracks(); // => InputSubtitleTrack[]
-
-// Get the primary subtitle track:
-await input.getPrimarySubtitleTrack(); // => InputSubtitleTrack | null
-```
+::: info
+Subtitle tracks are currently not supported for reading.
+:::
 
 ### Common track metadata
 
@@ -105,6 +97,9 @@ track.isAudioTrack(); // => boolean
 // Retrieve the track's language as an ISO 639-2/T language code.
 // Resolves to 'und' (undetermined) if the language isn't known.
 track.languageCode; // => string
+
+// A user-defined name for this track.
+track.name; // => string
 ```
 
 #### Codec information
@@ -113,7 +108,7 @@ You can query metadata related to the track's codec:
 ```ts
 track.codec; // => MediaCodec | null
 ```
-This field is `null` when the track's codec couldn't be recognized or is not supported by Mediabunny. See [Codecs](./supported-formats-and-codecs#codecs) for the full list of supported codecs.
+This field is `null` when the track's codec couldn't be recognized or is not supported by Mediabunny. See [Codecs](./supported-formats-and-codecs#codecs) for the full list of supported codecs. When Mediabunny doesn't recognize the format, you can still use the `internalCodecId` field to figure out the codec of the track, although its format depends on the container format used and is not homogenized by Mediabunny.
 
 You can also extract the full codec parameter string from the track, as specified in the [WebCodecs Codec Registry](https://www.w3.org/TR/webcodecs-codec-registry/):
 ```ts
@@ -365,26 +360,6 @@ for await (const { buffer, timestamp } of sink.buffers(5, 10)) {
 	node.buffer = buffer;
 	node.connect(audioContext.destination);
 	node.start(timestamp);
-}
-```
-
-We can extract subtitles from a video file:
-```ts
-import { SubtitlePacketSink } from 'mediabunny';
-
-const subtitleTrack = await input.getPrimarySubtitleTrack();
-if (subtitleTrack) {
-	const sink = new SubtitlePacketSink(subtitleTrack);
-	
-	// Extract all subtitle cues
-	for await (const cue of sink.subtitles()) {
-		console.log(`[${cue.timestamp}s - ${cue.timestamp + cue.duration}s] ${cue.text}`);
-	}
-	
-	// Or extract subtitles from a specific time range (10s to 60s)
-	for await (const cue of sink.subtitles(10, 60)) {
-		// Process subtitle cue
-	}
 }
 ```
 

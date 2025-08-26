@@ -55,6 +55,7 @@ output.addVideoTrack(videoSource, {
 // This adds two audio tracks; one in English and one in German.
 output.addAudioTrack(audioSourceEng, {
 	language: 'eng', // ISO 639-2/T language code
+	name: 'Developer Commentary', // Sets a user-defined track name
 });
 output.addAudioTrack(audioSourceGer, {
 	language: 'ger',

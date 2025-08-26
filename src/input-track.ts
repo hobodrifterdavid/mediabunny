@@ -32,15 +32,9 @@ export type PacketStats = {
 export interface InputTrackBacking {
 	getId(): number;
 	getCodec(): MediaCodec | null;
-	getCodecId(): string | null;
-	getLanguageCode(): string;
-	getLanguageBCP47(): string | null;
+	getInternalCodecId(): string | number | Uint8Array | null;
 	getName(): string | null;
-	isDefault(): boolean;
-	isForced(): boolean;
-	getDefaultDuration(): number | null;
-	getCodecDelay(): number;
-	getSeekPreRoll(): number;
+	getLanguageCode(): string;
 	getTimeResolution(): number;
 	getFirstTimestamp(): Promise<number>;
 	computeDuration(): Promise<number>;
@@ -69,11 +63,6 @@ export abstract class InputTrack {
 	abstract get type(): TrackType;
 	/** The codec of the track's packets. */
 	abstract get codec(): MediaCodec | null;
-
-	/** The raw codec ID string from the media file (e.g., "A_EAC3" for E-AC3 in Matroska). Useful when codec is not recognized. */
-	get codecId() {
-		return this._backing.getCodecId();
-	}
 
 	/** Returns the full codec parameter string for this track. */
 	abstract getCodecParameterString(): Promise<string | null>;
@@ -105,52 +94,30 @@ export abstract class InputTrack {
 		return this._backing.getId();
 	}
 
-	/** 
-	 * The ISO 639-2/T language code for this track (e.g., "eng", "fre", "jpn"). 
-	 * Returns "und" (undetermined) if not specified in the file.
-	 * Note: Some formats may not provide this field.
+	/**
+	 * The identifier of the codec used internally by the container. It is not homogenized by Mediabunny
+	 * and depends entirely on the container format.
+	 *
+	 * This field can be used to determine the codec of a track in case Mediabunny doesn't know that codec.
+	 *
+	 * - For ISOBMFF files, this field returns the name of the Sample Description Box (e.g. 'avc1').
+	 * - For Matroska files, this field returns the value of the CodecID element.
+	 * - For WAVE files, this field returns the value of the format tag in the 'fmt ' chunk.
+	 * - For ADTS files, this field contains the MPEG-4 Audio Object Type.
+	 * - In all other cases, this field is `null`.
 	 */
+	get internalCodecId() {
+		return this._backing.getInternalCodecId();
+	}
+
+	/** The ISO 639-2/T language code for this track. If the language is unknown, this field is 'und' (undetermined). */
 	get languageCode() {
 		return this._backing.getLanguageCode();
 	}
 
-	/** 
-	 * The BCP 47 language tag for this track (e.g., "en", "en-US", "zh-Hans"). 
-	 * Returns null if not specified in the file.
-	 * Note: This is independent of languageCode - a file may have one, both, or neither.
-	 */
-	get languageBCP47() {
-		return this._backing.getLanguageBCP47();
-	}
-
-	/** The name/title of this track as specified in the media file. May be null if no name was specified. */
+	/** A user-defined name for this track. */
 	get name() {
 		return this._backing.getName();
-	}
-
-	/** Whether this track is marked as the default track to be played. */
-	get isDefault() {
-		return this._backing.isDefault();
-	}
-
-	/** Whether this track is marked as forced (must be displayed/played). Common for forced subtitle tracks. */
-	get isForced() {
-		return this._backing.isForced();
-	}
-
-	/** The default duration of frames in nanoseconds. Null if not specified. Useful for calculating frame rates. */
-	get defaultDuration() {
-		return this._backing.getDefaultDuration();
-	}
-
-	/** Codec-specific delay in nanoseconds. Important for audio/video sync. */
-	get codecDelay() {
-		return this._backing.getCodecDelay();
-	}
-
-	/** Amount of time in nanoseconds to roll back when seeking. Important for codecs like Opus. */
-	get seekPreRoll() {
-		return this._backing.getSeekPreRoll();
 	}
 
 	/**

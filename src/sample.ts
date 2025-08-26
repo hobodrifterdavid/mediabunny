@@ -535,6 +535,64 @@ export class VideoSample {
 	}
 
 	/**
+	 * Draws the sample in the middle of the canvas corresponding to the context with the specified fit behavior.
+	 */
+	drawWithFit(context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, options: {
+		/**
+		 * Controls the fitting algorithm.
+		 *
+		 * - 'fill' will stretch the image to fill the entire box, potentially altering aspect ratio.
+		 * - 'contain' will contain the entire image within the box while preserving aspect ratio. This may lead to
+		 * letterboxing.
+		 * - 'cover' will scale the image until the entire box is filled, while preserving aspect ratio.
+		 */
+		fit: 'fill' | 'contain' | 'cover';
+		/** A way to override rotation. Defaults to the rotation of the sample. */
+		rotation?: Rotation;
+	}) {
+		const canvasWidth = context.canvas.width;
+		const canvasHeight = context.canvas.height;
+		const rotation = options.rotation ?? this.rotation;
+
+		// These variables specify where the final sample will be drawn on the canvas
+		let dx: number;
+		let dy: number;
+		let newWidth: number;
+		let newHeight: number;
+
+		if (options.fit === 'fill') {
+			dx = 0;
+			dy = 0;
+			newWidth = canvasWidth;
+			newHeight = canvasHeight;
+		} else {
+			const [sampleWidth, sampleHeight] = rotation % 180 === 0
+				? [this.codedWidth, this.codedHeight]
+				: [this.codedHeight, this.codedWidth];
+
+			const scale = options.fit === 'contain'
+				? Math.min(canvasWidth / sampleWidth, canvasHeight / sampleHeight)
+				: Math.max(canvasWidth / sampleWidth, canvasHeight / sampleHeight);
+			newWidth = sampleWidth * scale;
+			newHeight = sampleHeight * scale;
+			dx = (canvasWidth - newWidth) / 2;
+			dy = (canvasHeight - newHeight) / 2;
+		}
+
+		const aspectRatioChange = rotation % 180 === 0 ? 1 : newWidth / newHeight;
+		context.translate(canvasWidth / 2, canvasHeight / 2);
+		context.rotate(rotation * Math.PI / 180);
+		// This aspect ratio compensation is done so that we can draw the sample with the intended dimensions and
+		// don't need to think about how those dimensions change after the rotation
+		context.scale(1 / aspectRatioChange, aspectRatioChange);
+		context.translate(-canvasWidth / 2, -canvasHeight / 2);
+
+		// Important that we don't use .draw() here since that would take rotation into account, but we wanna handle it
+		// ourselves here
+		context.drawImage(this.toCanvasImageSource(), dx, dy, newWidth, newHeight);
+	}
+
+	/**
 	 * Converts this video sample to a CanvasImageSource for drawing to a canvas.
 	 *
 	 * You must use the value returned by this method immediately, as any VideoFrame created internally will

@@ -191,8 +191,9 @@ class VideoEncoderWrapper {
 	private encoder: VideoEncoder | null = null;
 	private muxer: Muxer | null = null;
 	private lastMultipleOfKeyFrameInterval = -1;
-	private lastWidth: number | null = null;
-	private lastHeight: number | null = null;
+	private codedWidth: number | null = null;
+	private codedHeight: number | null = null;
+	private resizeCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
 
 	private customEncoder: CustomVideoEncoder | null = null;
 	private customEncoderCallSerializer = new CallSerializer();
@@ -213,16 +214,60 @@ class VideoEncoderWrapper {
 			this.source._ensureValidAdd();
 
 			// Ensure video sample size remains constant
-			if (this.lastWidth !== null && this.lastHeight !== null) {
-				if (videoSample.codedWidth !== this.lastWidth || videoSample.codedHeight !== this.lastHeight) {
-					throw new Error(
-						`Video sample size must remain constant. Expected ${this.lastWidth}x${this.lastHeight},`
-						+ ` got ${videoSample.codedWidth}x${videoSample.codedHeight}.`,
-					);
+			if (this.codedWidth !== null && this.codedHeight !== null) {
+				if (videoSample.codedWidth !== this.codedWidth || videoSample.codedHeight !== this.codedHeight) {
+					const sizeChangeBehavior = this.encodingConfig.sizeChangeBehavior ?? 'deny';
+
+					if (sizeChangeBehavior === 'passThrough') {
+						// Do nada
+					} else if (sizeChangeBehavior === 'deny') {
+						throw new Error(
+							`Video sample size must remain constant. Expected ${this.codedWidth}x${this.codedHeight},`
+							+ ` got ${videoSample.codedWidth}x${videoSample.codedHeight}. To allow the sample size to`
+							+ ` change over time, set \`sizeChangeBehavior\` to a value other than 'strict' in the`
+							+ ` encoding options.`,
+						);
+					} else {
+						let canvasIsNew = false;
+
+						if (!this.resizeCanvas) {
+							if (typeof document !== 'undefined') {
+								// Prefer an HTMLCanvasElement
+								this.resizeCanvas = document.createElement('canvas');
+								this.resizeCanvas.width = this.codedWidth;
+								this.resizeCanvas.height = this.codedHeight;
+							} else {
+								this.resizeCanvas = new OffscreenCanvas(this.codedWidth, this.codedHeight);
+							}
+
+							canvasIsNew = true;
+						}
+
+						const context = this.resizeCanvas.getContext('2d', { alpha: false }) as
+							CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+						assert(context);
+
+						if (!canvasIsNew) {
+							context.clearRect(0, 0, this.codedWidth, this.codedHeight);
+						}
+
+						videoSample.drawWithFit(context, { fit: sizeChangeBehavior });
+
+						if (shouldClose) {
+							videoSample.close();
+						}
+
+						videoSample = new VideoSample(this.resizeCanvas, {
+							timestamp: videoSample.timestamp,
+							duration: videoSample.duration,
+							rotation: videoSample.rotation,
+						});
+						shouldClose = true;
+					}
 				}
 			} else {
-				this.lastWidth = videoSample.codedWidth;
-				this.lastHeight = videoSample.codedHeight;
+				this.codedWidth = videoSample.codedWidth;
+				this.codedHeight = videoSample.codedHeight;
 			}
 
 			if (!this.encoderInitialized) {

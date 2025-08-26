@@ -1119,6 +1119,8 @@ export class CanvasSink {
 	/** @internal */
 	_videoSampleToWrappedCanvas(sample: VideoSample): WrappedCanvas {
 		let canvas = this._canvasPool[this._nextCanvasIndex];
+		let canvasIsNew = false;
+
 		if (!canvas) {
 			if (typeof document !== 'undefined') {
 				// Prefer an HTMLCanvasElement
@@ -1132,6 +1134,8 @@ export class CanvasSink {
 			if (this._canvasPool.length > 0) {
 				this._canvasPool[this._nextCanvasIndex] = canvas;
 			}
+
+			canvasIsNew = true;
 		}
 
 		if (this._canvasPool.length > 0) {
@@ -1144,40 +1148,14 @@ export class CanvasSink {
 
 		context.resetTransform();
 
-		// These variables specify where the final sample will be drawn on the canvas
-		let dx: number;
-		let dy: number;
-		let newWidth: number;
-		let newHeight: number;
-
-		if (this._fit === 'fill') {
-			dx = 0;
-			dy = 0;
-			newWidth = this._width;
-			newHeight = this._height;
-		} else {
-			const [sampleWidth, sampleHeight] = this._rotation % 180 === 0
-				? [sample.codedWidth, sample.codedHeight]
-				: [sample.codedHeight, sample.codedWidth];
-
-			const scale = this._fit === 'contain'
-				? Math.min(this._width / sampleWidth, this._height / sampleHeight)
-				: Math.max(this._width / sampleWidth, this._height / sampleHeight);
-			newWidth = sampleWidth * scale;
-			newHeight = sampleHeight * scale;
-			dx = (this._width - newWidth) / 2;
-			dy = (this._height - newHeight) / 2;
+		if (!canvasIsNew) {
+			context.clearRect(0, 0, this._width, this._height);
 		}
 
-		const aspectRatioChange = this._rotation % 180 === 0 ? 1 : newWidth / newHeight;
-		context.translate(this._width / 2, this._height / 2);
-		context.rotate(this._rotation * Math.PI / 180);
-		// This aspect ratio compensation is done so that we can draw the sample with the intended dimensions and
-		// don't need to think about how those dimensions change after the rotation
-		context.scale(1 / aspectRatioChange, aspectRatioChange);
-		context.translate(-this._width / 2, -this._height / 2);
-
-		context.drawImage(sample.toCanvasImageSource(), dx, dy, newWidth, newHeight);
+		sample.drawWithFit(context, {
+			fit: this._fit,
+			rotation: this._rotation,
+		});
 
 		const result = {
 			canvas,

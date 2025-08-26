@@ -67,6 +67,8 @@ export type OutputSubtitleTrack = OutputTrack & { type: 'subtitle' };
 export type BaseTrackMetadata = {
 	/** The three-letter, ISO 639-2/T language code specifying the language of this track. */
 	languageCode?: string;
+	/** A user-defined name for this track, like "English" or "Director Commentary". */
+	name?: string;
 };
 
 /**
@@ -99,7 +101,10 @@ const validateBaseTrackMetadata = (metadata: BaseTrackMetadata) => {
 		throw new TypeError('metadata must be an object.');
 	}
 	if (metadata.languageCode !== undefined && !isIso639Dash2LanguageCode(metadata.languageCode)) {
-		throw new TypeError('metadata.languageCode must be a three-letter, ISO 639-2/T language code.');
+		throw new TypeError('metadata.languageCode, when provided, must be a three-letter, ISO 639-2/T language code.');
+	}
+	if (metadata.name !== undefined && typeof metadata.name !== 'string') {
+		throw new TypeError('metadata.name, when provided, must be a string.');
 	}
 };
 

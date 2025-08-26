@@ -45,6 +45,7 @@
 	format = new Mediabunny.MkvOutputFormat({ minimumClusterDuration: 2 });
 	format = new Mediabunny.WavOutputFormat();
 	format = new Mediabunny.MkvOutputFormat();
+	format = new Mediabunny.MovOutputFormat();
 	let target = new Mediabunny.BufferTarget();
 
 	/*
@@ -125,8 +126,8 @@
 	});
 	let subtitleSource = new Mediabunny.TextSubtitleSource('webvtt');
 
-	output.addVideoTrack(videoSource, { languageCode: 'eng' });
-	output.addAudioTrack(audioSource);
+	output.addVideoTrack(videoSource, { languageCode: 'eng', name: 'Mononoké' });
+	output.addAudioTrack(audioSource, { name: 'Yooo' });
 	//output.addSubtitleTrack(subtitleSource);
 
 	output.start();
@@ -206,5 +207,5 @@ Testing... <00:17.350>One... <00:18.125>Two...
 	await output.finalize();
 
 	console.log(target);
-	//download(new Blob([target.buffer]), 'test' + format.fileExtension);
+	download(new Blob([target.buffer]), 'test' + format.fileExtension);
 </script>

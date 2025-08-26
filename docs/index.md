@@ -104,6 +104,7 @@ const sponsors = {
 		{ image: 'https://avatars.githubusercontent.com/u/58149663', name: 'H7GhosT', url: 'https://github.com/H7GhosT' },
 		{ image: 'https://avatars.githubusercontent.com/u/91711202', name: 'ihasq', url: 'https://github.com/ihasq' },
 		{ image: 'https://avatars.githubusercontent.com/u/61233224', name: 'Allwhy', url: 'https://github.com/Allwhy' },
+		{ image: 'https://avatars.githubusercontent.com/u/97225946', name: '808vita', url: 'https://github.com/808vita' },
 	],
 };
 </script>

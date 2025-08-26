@@ -17,7 +17,6 @@ import {
 	PCM_AUDIO_CODECS,
 	PcmAudioCodec,
 	VideoCodec,
-	SubtitleCodec,
 } from '../codec';
 import {
 	AvcDecoderConfigurationRecord,
@@ -36,8 +35,6 @@ import {
 	InputTrackBacking,
 	InputVideoTrack,
 	InputVideoTrackBacking,
-	InputSubtitleTrack,
-	InputSubtitleTrackBacking,
 } from '../input-track';
 import { PacketRetrievalOptions } from '../media-sink';
 import {
@@ -59,10 +56,10 @@ import {
 	normalizeRotation,
 	Bitstream,
 	insertSorted,
+	textDecoder,
 } from '../misc';
 import { EncodedPacket, PLACEHOLDER_DATA } from '../packet';
 import { Reader } from '../reader';
-import { SubtitleConfig } from '../subtitles';
 import { buildIsobmffMimeType } from './isobmff-misc';
 import { IsobmffReader, MAX_BOX_HEADER_SIZE, MIN_BOX_HEADER_SIZE } from './isobmff-reader';
 
@@ -74,6 +71,8 @@ type InternalTrack = {
 	durationInMovieTimescale: number;
 	durationInMediaTimescale: number;
 	rotation: Rotation;
+	internalCodecId: string | null;
+	name: string | null;
 	languageCode: string;
 	sampleTableByteOffset: number;
 	sampleTable: SampleTable | null;
@@ -109,18 +108,10 @@ type InternalTrack = {
 		codecDescription: Uint8Array | null;
 		aacCodecInfo: AacCodecInfo | null;
 	};
-} | {
-	info: {
-		type: 'subtitle';
-		codec: SubtitleCodec | null;
-		codecId: string;
-		config: SubtitleConfig | null;
-	};
 });
 
 type InternalVideoTrack = InternalTrack & {	info: { type: 'video' } };
 type InternalAudioTrack = InternalTrack & {	info: { type: 'audio' } };
-type InternalSubtitleTrack = InternalTrack & { info: { type: 'subtitle' } };
 
 type SampleTable = {
 	sampleTimingEntries: SampleTimingEntry[];
@@ -608,7 +599,8 @@ export class IsobmffDemuxer extends Demuxer {
 			case 'minf':
 			case 'dinf':
 			case 'mfra':
-			case 'edts': {
+			case 'edts':
+			case 'udta': {
 				this.readContiguousBoxes(boxInfo.contentSize);
 			}; break;
 
@@ -637,6 +629,8 @@ export class IsobmffDemuxer extends Demuxer {
 					durationInMovieTimescale: -1,
 					durationInMediaTimescale: -1,
 					rotation: 0,
+					internalCodecId: null,
+					name: null,
 					languageCode: UNDETERMINED_LANGUAGE,
 					sampleTableByteOffset: -1,
 					sampleTable: null,
@@ -659,10 +653,6 @@ export class IsobmffDemuxer extends Demuxer {
 					} else if (track.info.type === 'audio' && track.info.numberOfChannels !== -1) {
 						const audioTrack = track as InternalAudioTrack;
 						track.inputTrack = new InputAudioTrack(new IsobmffAudioTrackBacking(audioTrack));
-						this.tracks.push(track);
-					} else if (track.info.type === 'subtitle' && track.info.codec !== null) {
-						const subtitleTrack = track as InternalSubtitleTrack;
-						track.inputTrack = new InputSubtitleTrack(new IsobmffSubtitleTrackBacking(subtitleTrack));
 						this.tracks.push(track);
 					}
 				}
@@ -827,18 +817,6 @@ export class IsobmffDemuxer extends Demuxer {
 						codecDescription: null,
 						aacCodecInfo: null,
 					};
-				} else if (handlerType === 'subt' || handlerType === 'sbtl' || handlerType === 'text') {
-					// TODO: MP4 subtitle support is partially implemented but has issues
-					// with track processing that cause hangs. Disabled for now.
-					// Will be added in a follow-up PR.
-					/*
-					track.info = {
-						type: 'subtitle',
-						codec: null,
-						codecId: '',
-						config: null,
-					};
-					*/
 				}
 			}; break;
 
@@ -871,6 +849,7 @@ export class IsobmffDemuxer extends Demuxer {
 						break;
 					}
 
+					track.internalCodecId = sampleBoxInfo.name;
 					const lowercaseBoxName = sampleBoxInfo.name.toLowerCase();
 
 					if (track.info.type === 'video') {
@@ -896,7 +875,7 @@ export class IsobmffDemuxer extends Demuxer {
 						this.metadataReader.pos += 4 + 4 + 4 + 2 + 32 + 2 + 2;
 
 						this.readContiguousBoxes((startPos + sampleBoxInfo.totalSize) - this.metadataReader.pos);
-					} else if (track.info.type === 'audio') {
+					} else {
 						if (lowercaseBoxName === 'mp4a') {
 							// We don't know the codec yet (might be AAC, might be MP3), need to read the esds box
 						} else if (lowercaseBoxName === 'opus') {
@@ -928,8 +907,7 @@ export class IsobmffDemuxer extends Demuxer {
 						this.metadataReader.pos += 6 * 1 + 2;
 
 						const version = this.metadataReader.readU16();
-						this.metadataReader.pos += 2; // Skip revision level
-						this.metadataReader.pos += 4; // Skip vendor
+						this.metadataReader.pos += 3 * 2;
 
 						let channelCount = this.metadataReader.readU16();
 						let sampleSize = this.metadataReader.readU16();
@@ -1033,42 +1011,20 @@ export class IsobmffDemuxer extends Demuxer {
 						}
 
 						this.readContiguousBoxes((startPos + sampleBoxInfo.totalSize) - this.metadataReader.pos);
-					} else if (track.info.type === 'subtitle') {
-						// Handle subtitle sample entries
-						if (lowercaseBoxName === 'wvtt') {
-							// WebVTT
-							track.info.codec = 'webvtt';
-							track.info.codecId = 'wvtt';
-						} else if (lowercaseBoxName === 'tx3g') {
-							// 3GPP Timed Text
-							track.info.codec = 'tx3g';
-							track.info.codecId = 'tx3g';
-						} else if (lowercaseBoxName === 'text' || lowercaseBoxName === 'subp') {
-							// QuickTime text or generic subtitle
-							track.info.codec = 'srt'; // Assume SRT for generic text
-							track.info.codecId = lowercaseBoxName;
-						} else {
-							console.warn(`Unsupported subtitle codec (sample entry type '${sampleBoxInfo.name}').`);
-						}
-
-						// Skip the sample entry header for subtitles
-						this.metadataReader.pos += 6 * 1 + 2;
-
-						this.readContiguousBoxes((startPos + sampleBoxInfo.totalSize) - this.metadataReader.pos);
 					}
 				}
 			}; break;
 
 			case 'avcC': {
 				const track = this.currentTrack;
-				assert(track && track.info?.type === 'video');
+				assert(track && track.info);
 
 				track.info.codecDescription = this.metadataReader.readBytes(boxInfo.contentSize);
 			}; break;
 
 			case 'hvcC': {
 				const track = this.currentTrack;
-				assert(track && track.info?.type === 'video');
+				assert(track && track.info);
 
 				track.info.codecDescription = this.metadataReader.readBytes(boxInfo.contentSize);
 			}; break;
@@ -1970,6 +1926,16 @@ export class IsobmffDemuxer extends Demuxer {
 
 				this.currentFragment.implicitBaseDataOffset = currentOffset;
 			}; break;
+
+			// These appear in udta:
+			case '©nam':
+			case 'name': {
+				if (!this.currentTrack) {
+					break;
+				}
+
+				this.currentTrack.name = textDecoder.decode(this.metadataReader.readBytes(boxInfo.contentSize));
+			}; break;
 		}
 
 		this.metadataReader.pos = boxEndPos;
@@ -1991,51 +1957,19 @@ abstract class IsobmffTrackBacking implements InputTrackBacking {
 	}
 
 	getCodec(): MediaCodec | null {
-		return null;
+		throw new Error('Not implemented on base class.');
 	}
 
-	getCodecId() {
-		// MP4 doesn't store codec IDs in the same string format as Matroska
-		return null;
+	getInternalCodecId() {
+		return this.internalTrack.internalCodecId;
+	}
+
+	getName() {
+		return this.internalTrack.name;
 	}
 
 	getLanguageCode() {
 		return this.internalTrack.languageCode;
-	}
-
-	getLanguageBCP47() {
-		// ISOBMFF doesn't store BCP 47 language codes in the track metadata
-		return null;
-	}
-
-	getName() {
-		// MP4/ISOBMFF doesn't store track names in the track metadata
-		return null;
-	}
-
-	isDefault() {
-		// MP4 doesn't have a default flag in the same way as Matroska
-		return false;
-	}
-
-	isForced() {
-		// MP4 doesn't have a forced flag in the same way as Matroska
-		return false;
-	}
-
-	getDefaultDuration() {
-		// Could be calculated from sample tables but not directly stored
-		return null;
-	}
-
-	getCodecDelay() {
-		// MP4 stores this differently, would need to extract from edit lists
-		return 0;
-	}
-
-	getSeekPreRoll() {
-		// MP4 stores this differently
-		return 0;
 	}
 
 	getTimeResolution() {
@@ -2654,11 +2588,6 @@ class IsobmffAudioTrackBacking extends IsobmffTrackBacking implements InputAudio
 		return this.internalTrack.info.sampleRate;
 	}
 
-	getBitDepth() {
-		// MP4 audio bit depth is stored in the audio sample entry
-		return null; // Not currently parsed from MP4
-	}
-
 	async getDecoderConfig(): Promise<AudioDecoderConfig | null> {
 		if (!this.internalTrack.info.codec) {
 			return null;
@@ -2670,23 +2599,6 @@ class IsobmffAudioTrackBacking extends IsobmffTrackBacking implements InputAudio
 			sampleRate: this.internalTrack.info.sampleRate,
 			description: this.internalTrack.info.codecDescription ?? undefined,
 		};
-	}
-}
-
-class IsobmffSubtitleTrackBacking extends IsobmffTrackBacking implements InputSubtitleTrackBacking {
-	override internalTrack: InternalSubtitleTrack;
-
-	constructor(internalTrack: InternalSubtitleTrack) {
-		super(internalTrack);
-		this.internalTrack = internalTrack;
-	}
-
-	override getCodec(): SubtitleCodec | null {
-		return this.internalTrack.info.codec;
-	}
-
-	async getSubtitleConfig(): Promise<SubtitleConfig | null> {
-		return this.internalTrack.info.config;
 	}
 }
 
@@ -2843,7 +2755,14 @@ const extractRotationFromMatrix = (matrix: TransformationMatrix) => {
 	const sinTheta = m21 / scaleX;
 
 	// Invert the rotation because matrices are post-multiplied in ISOBMFF
-	return -Math.atan2(sinTheta, cosTheta) * (180 / Math.PI);
+	const result = -Math.atan2(sinTheta, cosTheta) * (180 / Math.PI);
+
+	if (!Number.isFinite(result)) {
+		// Can happen if the entire matrix is 0, for example
+		return 0;
+	}
+
+	return result;
 };
 
 const sampleTableIsEmpty = (sampleTable: SampleTable) => {

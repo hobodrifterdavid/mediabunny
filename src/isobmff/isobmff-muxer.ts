@@ -117,6 +117,21 @@ export type IsobmffVideoTrackData = IsobmffTrackData & { type: 'video' };
 export type IsobmffAudioTrackData = IsobmffTrackData & { type: 'audio' };
 export type IsobmffSubtitleTrackData = IsobmffTrackData & { type: 'subtitle' };
 
+export type IsobmffMetadata = {
+	name?: string;
+};
+
+export const getTrackMetadata = (trackData: IsobmffTrackData) => {
+	const metadata: IsobmffMetadata = {};
+	const track = trackData.track as OutputTrack;
+
+	if (track.metadata.name !== undefined) {
+		metadata.name = track.metadata.name;
+	}
+
+	return metadata;
+};
+
 export const intoTimescale = (timeInSeconds: number, timescale: number, round = true) => {
 	const value = timeInSeconds * timescale;
 	return round ? Math.round(value) : value;
