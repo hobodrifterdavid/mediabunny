@@ -59,10 +59,17 @@ function bytesFmt(b) {
   return `${(b / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
+// Recursively walk a directory tree yielding file paths.
+// We intentionally *skip* any directory whose name ends with “.audio” because
+// those are the extractor’s own output folders. Without this guard the script
+// would treat previously extracted tracks (e.g. track_0_aac.mp4) as input
+// videos and recurse forever.
 async function* walk(dir) {
   for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
+
     if (entry.isDirectory()) {
+      if (entry.name.endsWith('.audio')) continue; // ← skip our output dirs
       yield* walk(full);
     } else if (entry.isFile()) {
       yield full;
@@ -140,7 +147,18 @@ async function analyzeAndExtract(video, force) {
     } else {
       const target = new BufferTarget();
       const output = new Output({ format: new map.format(), target });
-      const conv = await Conversion.init({ input, output, tracks: { indices: [i], audioOnly: true }, video: { discard: true } });
+      const conv = await Conversion.init({ 
+        input, 
+        output, 
+        video: { discard: true },
+        audio: (track, n) => {
+          if (track === t) {
+            return {}; // Include this track
+          } else {
+            return { discard: true }; // Discard all other audio tracks
+          }
+        }
+      });
       await conv.execute();
       await fs.writeFile(outFile, new Uint8Array(target.buffer));
       console.log(`    → container saved (${bytesFmt(target.buffer.byteLength)})`);
