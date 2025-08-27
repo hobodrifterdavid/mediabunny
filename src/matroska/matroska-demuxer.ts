@@ -859,7 +859,7 @@ export class MatroskaDemuxer extends Demuxer {
 					this.currentTrack
 					&& this.currentTrack.id !== -1
 					&& this.currentTrack.codecId
-					&& this.currentTrack.info
+					&& this.currentTrack.info !== null
 				) {
 					const slashIndex = this.currentTrack.codecId.indexOf('/');
 					const codecIdWithoutSuffix = slashIndex === -1
@@ -1065,7 +1065,7 @@ export class MatroskaDemuxer extends Demuxer {
 
 			case EBMLId.Language: {
 				if (!this.currentTrack) break;
-				if (this.currentTrack.languageCode) break; // LanguageBCP47 was present, which takes precedence
+				if (this.currentTrack.languageCode !== UNDETERMINED_LANGUAGE) break; // LanguageBCP47 was present, which takes precedence
 
 				this.currentTrack.languageCode = reader.readAsciiString(size);
 
@@ -2016,3 +2016,4 @@ const sortBlocksByReferences = (blocks: ClusterBlock[]) => {
 
 	return result;
 };
+
