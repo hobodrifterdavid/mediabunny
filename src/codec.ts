@@ -92,7 +92,13 @@ export const AUDIO_CODECS = [
  */
 export const SUBTITLE_CODECS = [
 	'webvtt',
-] as const; // TODO add the rest
+	'srt',
+	'ass',
+	'ssa',
+	'tx3g',
+	'vobsub',
+	'pgs',
+] as const;
 
 /**
  * Union type of known video codecs.

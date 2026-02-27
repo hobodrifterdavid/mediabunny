@@ -2986,7 +2986,7 @@ export class TextSubtitleSource extends SubtitleSource {
 		super(codec);
 
 		this._parser = new SubtitleParser({
-			codec,
+			codec: codec as 'webvtt',
 			output: (cue, metadata) => {
 				this._lastMuxerPromise
 					= this._connectedTrack!.output._muxer.addSubtitleCue(this._connectedTrack!, cue, metadata)

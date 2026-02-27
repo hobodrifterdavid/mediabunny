@@ -250,12 +250,17 @@ export {
 	InputTrack,
 	InputVideoTrack,
 	InputAudioTrack,
+	InputSubtitleTrack,
 	type InputTrackQuery,
 	type PacketStats,
 	asc,
 	desc,
 	prefer,
 } from './input-track';
+export {
+	SubtitleCue,
+	SubtitleConfig,
+} from './subtitles';
 export {
 	EncodedPacket,
 	type EncodedPacketSideData,

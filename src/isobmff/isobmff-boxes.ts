@@ -1900,6 +1900,12 @@ const audioCodecToConfigurationBox = (codec: AudioCodec, isQuickTime: boolean) =
 
 const SUBTITLE_CODEC_TO_BOX_NAME: Record<SubtitleCodec, string> = {
 	webvtt: 'wvtt',
+	srt: 'text',
+	ass: 'text',
+	ssa: 'text',
+	tx3g: 'tx3g',
+	vobsub: 'mp4s',
+	pgs: 'mp4s',
 };
 
 const SUBTITLE_CODEC_TO_CONFIGURATION_BOX: Record<
@@ -1907,6 +1913,12 @@ const SUBTITLE_CODEC_TO_CONFIGURATION_BOX: Record<
 	(trackData: IsobmffSubtitleTrackData) => Box | null
 > = {
 	webvtt: vttC,
+	srt: () => null,
+	ass: () => null,
+	ssa: () => null,
+	tx3g: () => null,
+	vobsub: () => null,
+	pgs: () => null,
 };
 
 const getLanguageCodeInt = (code: string) => {

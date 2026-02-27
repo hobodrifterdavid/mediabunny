@@ -6,7 +6,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { AudioCodec, MediaCodec, VideoCodec } from './codec';
+import { AudioCodec, MediaCodec, SubtitleCodec, VideoCodec } from './codec';
 import { determineVideoPacketType } from './codec-data';
 import { customAudioDecoders, customVideoDecoders } from './custom-coder';
 import { Input } from './input';
@@ -17,6 +17,7 @@ import { TrackType } from './output';
 import { EncodedPacket, PacketType } from './packet';
 import { TrackDisposition } from './metadata';
 import { DurationMetadataRequestOptions } from './demuxer';
+import { SubtitleConfig } from './subtitles';
 
 /**
  * Contains aggregate statistics about the encoded packets of a track.
@@ -110,6 +111,11 @@ export abstract class InputTrack {
 	/** Returns true if and only if this track is an audio track. */
 	isAudioTrack(): this is InputAudioTrack {
 		return this instanceof InputAudioTrack;
+	}
+
+	/** Returns true if and only if this track is a subtitle track. */
+	isSubtitleTrack(): this is InputSubtitleTrack {
+		return this instanceof InputSubtitleTrack;
 	}
 
 	/** The unique ID of this track in the input file. */
@@ -920,6 +926,70 @@ export class InputAudioTrack extends InputTrack {
 		}
 
 		return 'key'; // No audio codec with delta packets
+	}
+}
+
+export interface InputSubtitleTrackBacking extends InputTrackBacking {
+	getCodec(): MaybePromise<SubtitleCodec | null>;
+	getSubtitleConfig(): Promise<SubtitleConfig | null>;
+}
+
+/**
+ * Represents a subtitle track in an input file.
+ * @group Input files & tracks
+ * @public
+ */
+export class InputSubtitleTrack extends InputTrack {
+	/** @internal */
+	override _backing: InputSubtitleTrackBacking;
+
+	/** @internal */
+	constructor(input: Input, backing: InputSubtitleTrackBacking) {
+		super(input, backing);
+
+		this._backing = backing;
+	}
+
+	get type(): TrackType {
+		return 'subtitle';
+	}
+
+	/** The codec of the track's packets. */
+	async getCodec(): Promise<SubtitleCodec | null> {
+		return this._backing.getCodec();
+	}
+
+	/**
+	 * The codec of the track's packets.
+	 * @deprecated Use {@link InputSubtitleTrack.getCodec} instead.
+	 */
+	get codec(): SubtitleCodec | null {
+		return requireSync(this._backing.getCodec(), 'codec', 'getCodec');
+	}
+
+	/** Returns the subtitle config of this track, or null if it couldn't be determined. */
+	async getSubtitleConfig() {
+		return this._backing.getSubtitleConfig();
+	}
+
+	async getCodecParameterString() {
+		return this._backing.getCodec();
+	}
+
+	async canDecode() {
+		return (await this._backing.getCodec()) !== null;
+	}
+
+	async determinePacketType(packet: EncodedPacket): Promise<PacketType | null> {
+		if (!(packet instanceof EncodedPacket)) {
+			throw new TypeError('packet must be an EncodedPacket.');
+		}
+
+		return 'key';
+	}
+
+	async hasOnlyKeyPackets() {
+		return (await this._backing.getHasOnlyKeyPackets?.()) ?? true;
 	}
 }
 

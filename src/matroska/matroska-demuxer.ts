@@ -22,6 +22,7 @@ import {
 	OPUS_SAMPLE_RATE,
 	PRORES_FOURCCS,
 	ProresFourCc,
+	SubtitleCodec,
 	VideoCodec,
 } from '../codec';
 import { Demuxer } from '../demuxer';
@@ -29,9 +30,11 @@ import { Input } from '../input';
 import { Logging } from '../logging';
 import {
 	InputAudioTrackBacking,
+	InputSubtitleTrackBacking,
 	InputTrackBacking,
 	InputVideoTrackBacking,
 } from '../input-track';
+import { SubtitleConfig } from '../subtitles';
 import { AttachedFile, DEFAULT_TRACK_DISPOSITION, MetadataTags, TrackDisposition } from '../metadata';
 import { PacketRetrievalOptions } from '../media-sink';
 import {
@@ -229,10 +232,17 @@ type InternalTrack = {
 			codec: AudioCodec | null;
 			codecDescription: Uint8Array | null;
 			aacCodecInfo: AacCodecInfo | null;
+		}
+		| {
+			type: 'subtitle';
+			codec: SubtitleCodec | null;
+			codecId: string;
+			config: SubtitleConfig | null;
 		};
 };
 type InternalVideoTrack = InternalTrack & { info: { type: 'video' } };
 type InternalAudioTrack = InternalTrack & { info: { type: 'audio' } };
+type InternalSubtitleTrack = InternalTrack & { info: { type: 'subtitle' } };
 
 const METADATA_ELEMENTS = [
 	{ id: EBMLId.SeekHead, flag: 'seekHeadSeen' },
@@ -1158,6 +1168,26 @@ export class MatroskaDemuxer extends Demuxer {
 						const audioTrack = this.currentTrack as InternalAudioTrack;
 						this.currentTrack.trackBacking = new MatroskaAudioTrackBacking(audioTrack);
 						this.currentSegment.tracks.push(this.currentTrack);
+					} else if (this.currentTrack.info.type === 'subtitle') {
+						const codecMap: Record<string, SubtitleCodec> = {
+							'S_TEXT/WEBVTT': 'webvtt',
+							'S_TEXT/UTF8': 'srt',
+							'S_TEXT/SSA': 'ssa',
+							'S_TEXT/ASS': 'ass',
+						};
+						this.currentTrack.info.codec = codecMap[this.currentTrack.codecId!] || null;
+						this.currentTrack.info.codecId = this.currentTrack.codecId || '';
+
+						if (this.currentTrack.codecPrivate) {
+							const decoder = new TextDecoder();
+							this.currentTrack.info.config = {
+								description: decoder.decode(this.currentTrack.codecPrivate),
+							};
+						}
+
+						const subtitleTrack = this.currentTrack as InternalSubtitleTrack;
+						this.currentTrack.trackBacking = new MatroskaSubtitleTrackBacking(subtitleTrack);
+						this.currentSegment.tracks.push(this.currentTrack);
 					}
 				}
 
@@ -1200,6 +1230,13 @@ export class MatroskaDemuxer extends Demuxer {
 						codec: null,
 						codecDescription: null,
 						aacCodecInfo: null,
+					};
+				} else if (type === 17) {
+					this.currentTrack.info = {
+						type: 'subtitle',
+						codec: null,
+						codecId: '',
+						config: null,
 					};
 				}
 			}; break;
@@ -2594,5 +2631,30 @@ class MatroskaAudioTrackBacking extends MatroskaTrackBacking implements InputAud
 			sampleRate: this.internalTrack.info.sampleRate,
 			description: this.internalTrack.info.codecDescription ?? undefined,
 		};
+	}
+}
+
+class MatroskaSubtitleTrackBacking extends MatroskaTrackBacking implements InputSubtitleTrackBacking {
+	override internalTrack: InternalSubtitleTrack;
+
+	constructor(internalTrack: InternalSubtitleTrack) {
+		super(internalTrack);
+		this.internalTrack = internalTrack;
+	}
+
+	getType() {
+		return 'subtitle' as const;
+	}
+
+	override getCodec(): SubtitleCodec | null {
+		return this.internalTrack.info.codec;
+	}
+
+	async getDecoderConfig(): Promise<VideoDecoderConfig | AudioDecoderConfig | null> {
+		return null;
+	}
+
+	async getSubtitleConfig(): Promise<SubtitleConfig | null> {
+		return this.internalTrack.info.config;
 	}
 }

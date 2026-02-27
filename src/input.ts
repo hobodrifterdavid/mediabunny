@@ -11,6 +11,8 @@ import { InputFormat, InputFormatOptions, validateInputFormatOptions } from './i
 import {
 	InputAudioTrack,
 	InputAudioTrackBacking,
+	InputSubtitleTrack,
+	InputSubtitleTrackBacking,
 	InputTrack,
 	InputTrackBacking,
 	InputVideoTrack,
@@ -486,10 +488,24 @@ export class Input<S extends Source = Source> extends EventEmitter<InputEvents> 
 		const type = backing.getType();
 		const track = type === 'video'
 			? new InputVideoTrack(this, backing as InputVideoTrackBacking)
-			: new InputAudioTrack(this, backing as InputAudioTrackBacking);
+			: type === 'subtitle'
+				? new InputSubtitleTrack(this, backing as InputSubtitleTrackBacking)
+				: new InputAudioTrack(this, backing as InputAudioTrackBacking);
 
 		this._backingToTrack.set(backing, track);
 		return track;
+	}
+
+	/** Returns the list of all subtitle tracks of this input file. */
+	async getSubtitleTracks() {
+		const tracks = await this.getTracks();
+		return tracks.filter(x => x.isSubtitleTrack());
+	}
+
+	/** Returns the primary subtitle track of this input file, or null if there are no subtitle tracks. */
+	async getPrimarySubtitleTrack() {
+		const tracks = await this.getTracks();
+		return tracks.find(x => x.isSubtitleTrack()) ?? null;
 	}
 
 	/** Returns the full MIME type of this input file, including track codecs. */

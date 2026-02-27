@@ -879,6 +879,13 @@ export class Conversion {
 				} else {
 					trackOptions = [{}];
 				}
+			} else if (track.isSubtitleTrack()) {
+				this.discardedTracks.push({
+					track,
+					reason: 'max_track_count_of_type_reached',
+					trackOptions: {},
+				});
+				continue;
 			} else {
 				assert(false);
 			}
