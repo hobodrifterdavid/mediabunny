@@ -540,6 +540,7 @@ export type DiscardedTrack = {
 	 * - `'max_track_count_reached'`: The output had no more room for another track.
 	 * - `'max_track_count_of_type_reached'`: The output had no more room for another track of this type, or the output
 	 * doesn't support this track type at all.
+	 * - `'unsupported_track_type'`: The input track type is not supported by the conversion API.
 	 * - `'unknown_source_codec'`: We don't know the codec of the input track and therefore don't know what to do
 	 * with it.
 	 * - `'undecodable_source_codec'`: The input track's codec is known, but we are unable to decode it.
@@ -551,6 +552,7 @@ export type DiscardedTrack = {
 		| 'discarded_by_user'
 		| 'max_track_count_reached'
 		| 'max_track_count_of_type_reached'
+		| 'unsupported_track_type'
 		| 'unknown_source_codec'
 		| 'undecodable_source_codec'
 		| 'no_encodable_target_codec';
@@ -882,7 +884,7 @@ export class Conversion {
 			} else if (track.isSubtitleTrack()) {
 				this.discardedTracks.push({
 					track,
-					reason: 'max_track_count_of_type_reached',
+					reason: 'unsupported_track_type',
 					trackOptions: {},
 				});
 				continue;
