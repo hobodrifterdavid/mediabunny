@@ -58,9 +58,12 @@ import {
 import {
 	AudioEncodingConfig,
 	buildAudioEncoderConfig,
-	buildVideoEncoderConfig,
+	buildQuantizerEncodeOptions,
+	buildVideoEncoderConfigs,
+	resolveQuality,
 	validateAudioEncodingConfig,
 	validateVideoEncodingConfig,
+	VideoEncoderConfigCandidate,
 	VideoEncodingConfig,
 } from './encode';
 import { AudioResampler } from './resample';
@@ -254,6 +257,9 @@ class VideoEncoderWrapper {
 	private customEncoder: CustomVideoEncoder | null = null;
 	private customEncoderCallSerializer = new CallSerializer();
 	private customEncoderQueueSize = 0;
+
+	// Set when the encoder uses quantizer-based rate control; carries the quantizer value applied to each frame
+	private defaultEncodeOptions: VideoEncoderEncodeOptions = {};
 
 	// Alpha stuff
 	private alphaEncoder: VideoEncoder | null = null;
@@ -497,7 +503,11 @@ class VideoEncoderWrapper {
 				const keyFrameInterval = this.encodingConfig.keyFrameInterval ?? 2;
 				const multipleOfKeyFrameInterval = Math.floor(sampleToEncode.timestamp / keyFrameInterval);
 
-				const mergedEncodeOptions = { ...sampleToEncode.encodeOptions, ...encodeOptions };
+				const mergedEncodeOptions = {
+					...this.defaultEncodeOptions,
+					...sampleToEncode.encodeOptions,
+					...encodeOptions,
+				};
 
 				const finalEncodeOptions = {
 					...mergedEncodeOptions,
@@ -638,20 +648,98 @@ class VideoEncoderWrapper {
 
 	private ensureEncoder(videoSample: VideoSample) {
 		this.ensureEncoderPromise = (async () => {
-			const encoderConfig = buildVideoEncoderConfig({
+			// eslint-disable-next-line @typescript-eslint/no-deprecated
+			const quality = resolveQuality(this.encodingConfig.quality, this.encodingConfig.bitrate);
+			assert(quality !== undefined);
+
+			const candidates = buildVideoEncoderConfigs({
 				...this.encodingConfig,
+				quality,
 				width: videoSample.codedWidth,
 				height: videoSample.codedHeight,
 				squarePixelWidth: videoSample.squarePixelWidth,
 				squarePixelHeight: videoSample.squarePixelHeight,
 				framerate: this.source._connectedTrack?.metadata.frameRate,
 			});
-			this.encodingConfig.onEncoderConfig?.(encoderConfig);
 
-			const MatchingCustomEncoder = customVideoEncoders.find(x => x.supports(
-				this.encodingConfig.codec,
-				encoderConfig,
-			));
+			// Try the candidate configs in order of preference until we find one that is supported
+			let selected: VideoEncoderConfigCandidate | null = null;
+			let MatchingCustomEncoder: (typeof customVideoEncoders)[number] | undefined;
+
+			for (const candidate of candidates) {
+				const candidateConfig = candidate.config;
+				this.encodingConfig.onEncoderConfig?.(candidateConfig);
+
+				MatchingCustomEncoder = customVideoEncoders.find(x => x.supports(
+					this.encodingConfig.codec,
+					candidateConfig,
+				));
+				if (MatchingCustomEncoder) {
+					selected = candidate;
+					break;
+				}
+
+				if (typeof VideoEncoder === 'undefined') {
+					continue;
+				}
+
+				candidateConfig.alpha = 'discard'; // Since we handle alpha ourselves
+
+				if (this.encodingConfig.alpha === 'keep') {
+					// Encoding alpha requires using two parallel encoders, so we need to make sure they stay in sync
+					// and that neither of them drops frames. Setting latencyMode to 'quality' achieves this, because
+					// "User Agents MUST not drop frames to achieve the target bitrate and/or framerate."
+					candidateConfig.latencyMode = 'quality';
+				}
+
+				const hasOddDimension = candidateConfig.width % 2 === 1 || candidateConfig.height % 2 === 1;
+				if (
+					hasOddDimension
+					&& (this.encodingConfig.codec === 'avc' || this.encodingConfig.codec === 'hevc')
+				) {
+					// Throw a special error for this case as it gets hit often
+					throw new Error(
+						`The dimensions ${candidateConfig.width}x${candidateConfig.height} are not supported for codec`
+						+ ` '${this.encodingConfig.codec}'; both width and height must be even numbers. Make sure to`
+						+ ` round your dimensions to the nearest even number.`,
+					);
+				}
+
+				const support = await VideoEncoder.isConfigSupported(candidateConfig);
+				if (support.supported) {
+					selected = candidate;
+					break;
+				}
+			}
+
+			if (!selected) {
+				if (typeof VideoEncoder === 'undefined') {
+					throw new Error('VideoEncoder is not supported by this browser.');
+				}
+
+				// The candidates only differ in their rate control, so we describe them as one config with a
+				// slash-separated list of the attempted rate control methods
+				const firstConfig = candidates[0]!.config;
+				const rateControls = candidates.map(({ config, quantizer }) =>
+					quantizer !== null ? `quantizer ${quantizer}` : `${config.bitrate} bps`,
+				);
+
+				throw new Error(
+					`This specific encoder configuration (${firstConfig.codec}, ${rateControls.join(' / ')},`
+					+ ` ${firstConfig.width}x${firstConfig.height}, hardware acceleration:`
+					+ ` ${firstConfig.hardwareAcceleration ?? 'no-preference'}) is not supported by this browser.`
+					+ ` Consider using another codec or changing your video parameters.`,
+				);
+			}
+
+			const encoderConfig = selected.config;
+			if (selected.quantizer !== null) {
+				// The chosen config uses quantizer-based rate control, so each frame must carry the quantizer value
+				this.defaultEncodeOptions = buildQuantizerEncodeOptions(
+					this.encodingConfig.codec,
+					selected.quantizer,
+				);
+			}
 
 			if (MatchingCustomEncoder) {
 				// @ts-expect-error "Can't create instance of abstract class 🤓"
@@ -685,42 +773,6 @@ class VideoEncoderWrapper {
 
 				await this.customEncoder.init();
 			} else {
-				if (typeof VideoEncoder === 'undefined') {
-					throw new Error('VideoEncoder is not supported by this browser.');
-				}
-
-				encoderConfig.alpha = 'discard'; // Since we handle alpha ourselves
-
-				if (this.encodingConfig.alpha === 'keep') {
-					// Encoding alpha requires using two parallel encoders, so we need to make sure they stay in sync
-					// and that neither of them drops frames. Setting latencyMode to 'quality' achieves this, because
-					// "User Agents MUST not drop frames to achieve the target bitrate and/or framerate."
-					encoderConfig.latencyMode = 'quality';
-				}
-
-				const hasOddDimension = encoderConfig.width % 2 === 1 || encoderConfig.height % 2 === 1;
-				if (
-					hasOddDimension
-					&& (this.encodingConfig.codec === 'avc' || this.encodingConfig.codec === 'hevc')
-				) {
-					// Throw a special error for this case as it gets hit often
-					throw new Error(
-						`The dimensions ${encoderConfig.width}x${encoderConfig.height} are not supported for codec`
-						+ ` '${this.encodingConfig.codec}'; both width and height must be even numbers. Make sure to`
-						+ ` round your dimensions to the nearest even number.`,
-					);
-				}
-
-				const support = await VideoEncoder.isConfigSupported(encoderConfig);
-				if (!support.supported) {
-					throw new Error(
-						`This specific encoder configuration (${encoderConfig.codec}, ${encoderConfig.bitrate} bps,`
-						+ ` ${encoderConfig.width}x${encoderConfig.height}, hardware acceleration:`
-						+ ` ${encoderConfig.hardwareAcceleration ?? 'no-preference'}) is not supported by this browser.`
-						+ ` Consider using another codec or changing your video parameters.`,
-					);
-				}
-
 				/** Queue of color chunks waiting for their alpha counterpart. */
 				const colorChunkQueue: {
 					chunk: EncodedVideoChunk;
@@ -805,6 +857,7 @@ class VideoEncoderWrapper {
 
 						if (alphaFrame) {
 							this.alphaEncoder.encode(alphaFrame, {
+								...this.defaultEncodeOptions,
 								// Crucial: The alpha frame is forced to be a key frame whenever the color frame
 								// also is. Without this, playback can glitch and even crash in some browsers.
 								// This is the reason why the two encoders are wired in series and not in parallel.
@@ -2104,10 +2157,14 @@ class AudioEncoderWrapper {
 		this.ensureEncoderPromise = (async () => {
 			const { numberOfChannels, sampleRate } = audioSample;
 
+			// eslint-disable-next-line @typescript-eslint/no-deprecated
+			const quality = resolveQuality(this.encodingConfig.quality, this.encodingConfig.bitrate);
+
 			const encoderConfig = buildAudioEncoderConfig({
 				numberOfChannels,
 				sampleRate,
 				...this.encodingConfig,
+				quality,
 			});
 			this.encodingConfig.onEncoderConfig?.(encoderConfig);
 
