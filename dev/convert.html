@@ -25,7 +25,7 @@
 			chunked: true,
 			chunkSize: 2**20
 		});
-		const outputFormat = new Mediabunny.Mp4OutputFormat();
+		const outputFormat = new Mediabunny.MovOutputFormat();
 
 		const p = document.createElement('p');
 		p.textContent = 'Capturing...';
@@ -129,11 +129,11 @@
 			},
 			*/
 			video: {
-				codec: 'avc',
-				bitrate: new Mediabunny.Quality({
-					quality: Infinity,
-				}),
-				forceTranscode: true,
+				//codec: 'avc',
+				//bitrate: new Mediabunny.Quality({
+				//	quality: Infinity,
+				//}),
+				//forceTranscode: true,
 				//process: (sample) => {
 				//	sample.draw(ctx, 0, 0, 1280, 720);
 				//	return new Mediabunny.VideoSample(canvas, { timestamp: sample.timestamp, duration: sample.duration });
@@ -157,7 +157,7 @@
 				}
 			},
 			trim: {
-				end: 20,
+				end: 0.5,
 				//start: -2,
 				//end: 10,
 				//start: 300.14984567374756 - 100,
@@ -197,7 +197,7 @@
 		document.body.append(video);
 		video.play();
 
-		//download(new Blob([target.buffer]), 'converted' + outputFormat.fileExtension);
+		download(new Blob([target.buffer]), 'converted' + outputFormat.fileExtension);
 
 		function download(blob, filename) {
 			const url = URL.createObjectURL(blob);
